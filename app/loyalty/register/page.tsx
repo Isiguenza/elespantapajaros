@@ -37,11 +37,12 @@ export default function LoyaltyRegisterPage() {
           customerEmail: email.trim() || null,
         }),
       });
-      if (!res.ok) throw new Error("Error al crear tarjeta");
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.details || data?.error || "Error al crear tarjeta");
       setCard(data);
-    } catch {
-      setError("Hubo un error, intenta de nuevo");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Hubo un error, intenta de nuevo";
+      setError(msg);
     } finally {
       setSubmitting(false);
     }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { loyaltyCards } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 
 export async function GET() {
   try {
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate unique barcode value
-    const barcodeValue = `ESP-${Date.now().toString(36).toUpperCase()}-${uuidv4().slice(0, 4).toUpperCase()}`;
+    const barcodeValue = `ESP-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 4).toUpperCase()}`;
 
     const [card] = await db
       .insert(loyaltyCards)
@@ -42,6 +42,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(card, { status: 201 });
   } catch (error) {
     console.error("Error creating loyalty card:", error);
-    return NextResponse.json({ error: "Error" }, { status: 500 });
+    return NextResponse.json({ error: "Error creating card", details: String(error) }, { status: 500 });
   }
 }

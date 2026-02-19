@@ -4,6 +4,54 @@ import { loyaltyCards } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import path from "path";
 import fs from "fs";
+import zlib from "zlib";
+
+function generateMinimalPng(): Buffer {
+  const width = 29, height = 29;
+  const raw: number[] = [];
+  for (let y = 0; y < height; y++) {
+    raw.push(0); // filter: none
+    for (let x = 0; x < width; x++) {
+      raw.push(79, 70, 229, 255); // RGBA indigo
+    }
+  }
+  const compressed = zlib.deflateSync(Buffer.from(raw));
+
+  function crc32(buf: Buffer): number {
+    let c: number;
+    const table: number[] = [];
+    for (let n = 0; n < 256; n++) {
+      c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c;
+    }
+    c = 0xffffffff;
+    for (let i = 0; i < buf.length; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  function chunk(type: string, data: Buffer): Buffer {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const typeData = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(typeData));
+    return Buffer.concat([len, typeData, crc]);
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6; // 8-bit RGBA
+
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", compressed),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 export async function GET(
   request: NextRequest,
@@ -48,21 +96,37 @@ export async function GET(
     try {
       const { PKPass } = await import("passkit-generator");
 
-      const certsPath = path.resolve(process.cwd(), "certs");
-      const assetsPath = path.resolve(certsPath, "pass-assets");
+      // Read certificates: prefer env vars (base64), fallback to files for local dev
+      let wwdr: string;
+      let signerCert: string;
+      let signerKey: string;
 
-      // Read certificates as utf-8 strings
-      const wwdr = fs.readFileSync(path.join(certsPath, "wwdr.pem"), "utf-8");
-      const signerCert = fs.readFileSync(path.join(certsPath, "signerCert.pem"), "utf-8");
-      const signerKey = fs.readFileSync(path.join(certsPath, "signerKey.pem"), "utf-8");
+      if (process.env.APPLE_WWDR_PEM_B64) {
+        wwdr = Buffer.from(process.env.APPLE_WWDR_PEM_B64, "base64").toString("utf-8");
+        signerCert = Buffer.from(process.env.APPLE_SIGNER_CERT_B64!, "base64").toString("utf-8");
+        signerKey = Buffer.from(process.env.APPLE_SIGNER_KEY_B64!, "base64").toString("utf-8");
+      } else {
+        const certsPath = path.resolve(process.cwd(), "certs");
+        wwdr = fs.readFileSync(path.join(certsPath, "wwdr.pem"), "utf-8");
+        signerCert = fs.readFileSync(path.join(certsPath, "signerCert.pem"), "utf-8");
+        signerKey = fs.readFileSync(path.join(certsPath, "signerKey.pem"), "utf-8");
+      }
 
-      // Read pass asset files
+      // Read pass asset files (local only; on Vercel, generate minimal icon)
       const buffers: Record<string, Buffer> = {};
+      const assetsPath = path.resolve(process.cwd(), "certs", "pass-assets");
       if (fs.existsSync(assetsPath)) {
         const assetFiles = fs.readdirSync(assetsPath);
         for (const file of assetFiles) {
           buffers[file] = fs.readFileSync(path.join(assetsPath, file));
         }
+      } else {
+        // Generate a minimal 1x1 indigo PNG for required icon
+        const minimalPng = generateMinimalPng();
+        buffers["icon.png"] = minimalPng;
+        buffers["icon@2x.png"] = minimalPng;
+        buffers["logo.png"] = minimalPng;
+        buffers["logo@2x.png"] = minimalPng;
       }
 
       const pass = new PKPass(
