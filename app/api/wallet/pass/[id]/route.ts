@@ -96,12 +96,18 @@ export async function GET(
     try {
       const { PKPass } = await import("passkit-generator");
 
-      // Read certificates: prefer env vars (base64), fallback to files for local dev
+      // Read certificates: prefer env vars, fallback to files for local dev
       let wwdr: string;
       let signerCert: string;
       let signerKey: string;
 
-      if (process.env.APPLE_WWDR_PEM_B64) {
+      if (process.env.APPLE_WWDR_PEM) {
+        // Direct PEM content from env vars (Vercel supports multiline)
+        wwdr = process.env.APPLE_WWDR_PEM!;
+        signerCert = process.env.APPLE_SIGNER_CERT_PEM!;
+        signerKey = process.env.APPLE_SIGNER_KEY_PEM!;
+      } else if (process.env.APPLE_WWDR_PEM_B64) {
+        // Base64-encoded PEM from env vars
         wwdr = Buffer.from(process.env.APPLE_WWDR_PEM_B64, "base64").toString("utf-8");
         signerCert = Buffer.from(process.env.APPLE_SIGNER_CERT_B64!, "base64").toString("utf-8");
         signerKey = Buffer.from(process.env.APPLE_SIGNER_KEY_B64!, "base64").toString("utf-8");
