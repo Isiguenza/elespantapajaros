@@ -13,14 +13,16 @@ async function generateStripImage(
   total: number,
   assetsPath: string
 ): Promise<{ strip: Buffer; strip2x: Buffer }> {
-  // @2x strip: 750 x 246
+  // @2x strip: 750 x 246, 2 rows of 4 stamps
   const W2 = 750, H2 = 246;
-  const STAMP_SIZE = 70;
-  const COLS = Math.min(total, 8);
-  const GAP = 16;
+  const STAMP_SIZE = 65;
+  const COLS = 4;
+  const ROWS = 2;
+  const GAP = 20;
   const totalW = COLS * STAMP_SIZE + (COLS - 1) * GAP;
+  const totalH = ROWS * STAMP_SIZE + (ROWS - 1) * GAP;
   const startX = Math.round((W2 - totalW) / 2);
-  const startY = Math.round((H2 - STAMP_SIZE) / 2);
+  const startY = Math.round((H2 - totalH) / 2);
 
   const hatBuf = await sharp(path.join(assetsPath, "hat@2x.png"))
     .resize(STAMP_SIZE, STAMP_SIZE, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
@@ -30,11 +32,14 @@ async function generateStripImage(
     .toBuffer();
 
   const composites: sharp.OverlayOptions[] = [];
-  for (let i = 0; i < COLS; i++) {
+  const totalStamps = Math.min(total, 8);
+  for (let i = 0; i < totalStamps; i++) {
+    const row = Math.floor(i / COLS);
+    const col = i % COLS;
     composites.push({
       input: i < stamps ? hatBuf : emptyBuf,
-      left: startX + i * (STAMP_SIZE + GAP),
-      top: startY,
+      left: startX + col * (STAMP_SIZE + GAP),
+      top: startY + row * (STAMP_SIZE + GAP),
     });
   }
 
@@ -144,7 +149,6 @@ export async function GET(
           foregroundColor: "rgb(255, 255, 255)",
           backgroundColor: `rgb(${BG_COLOR.r}, ${BG_COLOR.g}, ${BG_COLOR.b})`,
           labelColor: "rgb(180, 200, 170)",
-          logoText: "Espantapájaros",
           webServiceURL: `${request.nextUrl.origin}/api/wallet/v1`,
           authenticationToken: card.id,
         }
@@ -166,30 +170,12 @@ export async function GET(
         value: `${card.stamps}/${card.stampsPerReward}`,
       });
 
-      // Primary fields
-      pass.primaryFields.push({
-        key: "customerName",
-        label: "CLIENTE",
-        value: card.customerName,
-      });
-
       // Secondary fields
-      pass.secondaryFields.push(
-        {
-          key: "rewards",
-          label: "PREMIOS",
-          value: `${card.rewardsAvailable}`,
-        }
-      );
-
-      // Auxiliary fields
-      pass.auxiliaryFields.push(
-        {
-          key: "code",
-          label: "CÓDIGO",
-          value: card.barcodeValue,
-        }
-      );
+      pass.secondaryFields.push({
+        key: "rewards",
+        label: "PREMIOS",
+        value: `${card.rewardsAvailable}`,
+      });
 
       // Back fields
       pass.backFields.push(
