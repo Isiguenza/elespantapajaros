@@ -15,10 +15,10 @@ async function generateStripImage(
 ): Promise<{ strip: Buffer; strip2x: Buffer }> {
   // @2x strip: 750 x 246, 2 rows of 4 stamps
   const W2 = 750, H2 = 246;
-  const STAMP_SIZE = 65;
+  const STAMP_SIZE = 80;
   const COLS = 4;
   const ROWS = 2;
-  const GAP = 20;
+  const GAP = 30;
   const totalW = COLS * STAMP_SIZE + (COLS - 1) * GAP;
   const totalH = ROWS * STAMP_SIZE + (ROWS - 1) * GAP;
   const startX = Math.round((W2 - totalW) / 2);
@@ -175,6 +175,16 @@ export async function GET(
         key: "rewards",
         label: "PREMIOS",
         value: `${card.rewardsAvailable}`,
+      });
+
+      // Auxiliary fields - customer name (trimmed)
+      const displayName = card.customerName.length > 20 
+        ? card.customerName.substring(0, 20) + "..."
+        : card.customerName;
+      pass.auxiliaryFields.push({
+        key: "customer",
+        label: "CLIENTE",
+        value: displayName,
       });
 
       // Back fields
