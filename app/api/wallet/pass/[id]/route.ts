@@ -4,53 +4,50 @@ import { loyaltyCards } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import path from "path";
 import fs from "fs";
-import zlib from "zlib";
+import sharp from "sharp";
 
-function generateMinimalPng(): Buffer {
-  const width = 29, height = 29;
-  const raw: number[] = [];
-  for (let y = 0; y < height; y++) {
-    raw.push(0); // filter: none
-    for (let x = 0; x < width; x++) {
-      raw.push(79, 70, 229, 255); // RGBA indigo
-    }
+const BG_COLOR = { r: 29, g: 39, b: 27 };
+
+async function generateStripImage(
+  stamps: number,
+  total: number,
+  assetsPath: string
+): Promise<{ strip: Buffer; strip2x: Buffer }> {
+  // @2x strip: 750 x 246
+  const W2 = 750, H2 = 246;
+  const STAMP_SIZE = 70;
+  const COLS = Math.min(total, 8);
+  const GAP = 16;
+  const totalW = COLS * STAMP_SIZE + (COLS - 1) * GAP;
+  const startX = Math.round((W2 - totalW) / 2);
+  const startY = Math.round((H2 - STAMP_SIZE) / 2);
+
+  const hatBuf = await sharp(path.join(assetsPath, "hat@2x.png"))
+    .resize(STAMP_SIZE, STAMP_SIZE, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .toBuffer();
+  const emptyBuf = await sharp(path.join(assetsPath, "mojito-empty@2x.png"))
+    .resize(STAMP_SIZE, STAMP_SIZE, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .toBuffer();
+
+  const composites: sharp.OverlayOptions[] = [];
+  for (let i = 0; i < COLS; i++) {
+    composites.push({
+      input: i < stamps ? hatBuf : emptyBuf,
+      left: startX + i * (STAMP_SIZE + GAP),
+      top: startY,
+    });
   }
-  const compressed = zlib.deflateSync(Buffer.from(raw));
 
-  function crc32(buf: Buffer): number {
-    let c: number;
-    const table: number[] = [];
-    for (let n = 0; n < 256; n++) {
-      c = n;
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      table[n] = c;
-    }
-    c = 0xffffffff;
-    for (let i = 0; i < buf.length; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
-    return (c ^ 0xffffffff) >>> 0;
-  }
+  const strip2x = await sharp({
+    create: { width: W2, height: H2, channels: 4, background: { ...BG_COLOR, alpha: 255 } },
+  })
+    .composite(composites)
+    .png()
+    .toBuffer();
 
-  function chunk(type: string, data: Buffer): Buffer {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length);
-    const typeData = Buffer.concat([Buffer.from(type), data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(crc32(typeData));
-    return Buffer.concat([len, typeData, crc]);
-  }
+  const strip = await sharp(strip2x).resize(375, 123).png().toBuffer();
 
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6; // 8-bit RGBA
-
-  return Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", compressed),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
+  return { strip, strip2x };
 }
 
 export async function GET(
@@ -92,7 +89,6 @@ export async function GET(
     }
 
     // Generate Apple Wallet pass using passkit-generator
-    // This requires proper certificates to be set up
     try {
       const { PKPass } = await import("passkit-generator");
 
@@ -102,12 +98,10 @@ export async function GET(
       let signerKey: string;
 
       if (process.env.APPLE_WWDR_PEM) {
-        // Direct PEM content from env vars (Vercel supports multiline)
         wwdr = process.env.APPLE_WWDR_PEM!;
         signerCert = process.env.APPLE_SIGNER_CERT_PEM!;
         signerKey = process.env.APPLE_SIGNER_KEY_PEM!;
       } else if (process.env.APPLE_WWDR_PEM_B64) {
-        // Base64-encoded PEM from env vars
         wwdr = Buffer.from(process.env.APPLE_WWDR_PEM_B64, "base64").toString("utf-8");
         signerCert = Buffer.from(process.env.APPLE_SIGNER_CERT_B64!, "base64").toString("utf-8");
         signerKey = Buffer.from(process.env.APPLE_SIGNER_KEY_B64!, "base64").toString("utf-8");
@@ -118,30 +112,29 @@ export async function GET(
         signerKey = fs.readFileSync(path.join(certsPath, "signerKey.pem"), "utf-8");
       }
 
-      // Read pass asset files (local only; on Vercel, generate minimal icon)
-      const buffers: Record<string, Buffer> = {};
+      // Read static pass assets (icon, logo)
       const assetsPath = path.resolve(process.cwd(), "certs", "pass-assets");
-      if (fs.existsSync(assetsPath)) {
-        const assetFiles = fs.readdirSync(assetsPath);
-        for (const file of assetFiles) {
-          buffers[file] = fs.readFileSync(path.join(assetsPath, file));
+      const buffers: Record<string, Buffer> = {};
+      const staticFiles = ["icon.png", "icon@2x.png", "logo.png", "logo@2x.png"];
+      for (const file of staticFiles) {
+        const filePath = path.join(assetsPath, file);
+        if (fs.existsSync(filePath)) {
+          buffers[file] = fs.readFileSync(filePath);
         }
-      } else {
-        // Generate a minimal 1x1 indigo PNG for required icon
-        const minimalPng = generateMinimalPng();
-        buffers["icon.png"] = minimalPng;
-        buffers["icon@2x.png"] = minimalPng;
-        buffers["logo.png"] = minimalPng;
-        buffers["logo@2x.png"] = minimalPng;
       }
+
+      // Generate dynamic strip image with stamps
+      const { strip, strip2x } = await generateStripImage(
+        card.stamps,
+        card.stampsPerReward,
+        assetsPath
+      );
+      buffers["strip.png"] = strip;
+      buffers["strip@2x.png"] = strip2x;
 
       const pass = new PKPass(
         buffers,
-        {
-          wwdr,
-          signerCert,
-          signerKey,
-        },
+        { wwdr, signerCert, signerKey },
         {
           serialNumber: card.id,
           passTypeIdentifier: passTypeId,
@@ -149,8 +142,11 @@ export async function GET(
           organizationName: "Espantapájaros",
           description: "Tarjeta de Cliente Frecuente",
           foregroundColor: "rgb(255, 255, 255)",
-          backgroundColor: "rgb(79, 70, 229)",
+          backgroundColor: `rgb(${BG_COLOR.r}, ${BG_COLOR.g}, ${BG_COLOR.b})`,
+          labelColor: "rgb(180, 200, 170)",
           logoText: "Espantapájaros",
+          webServiceURL: `${request.nextUrl.origin}/api/wallet/v1`,
+          authenticationToken: card.id,
         }
       );
 
@@ -159,7 +155,7 @@ export async function GET(
       // Set barcode
       pass.setBarcodes({
         message: card.barcodeValue,
-        format: "PKBarcodeFormatPDF417",
+        format: "PKBarcodeFormatQR",
         messageEncoding: "iso-8859-1",
       });
 
@@ -180,14 +176,18 @@ export async function GET(
       // Secondary fields
       pass.secondaryFields.push(
         {
-          key: "currentStamps",
-          label: "SELLOS ACTUALES",
-          value: `${card.stamps} sellos`,
-        },
-        {
           key: "rewards",
-          label: "PREMIOS DISPONIBLES",
-          value: `${card.rewardsAvailable} premios`,
+          label: "PREMIOS",
+          value: `${card.rewardsAvailable}`,
+        }
+      );
+
+      // Auxiliary fields
+      pass.auxiliaryFields.push(
+        {
+          key: "code",
+          label: "CÓDIGO",
+          value: card.barcodeValue,
         }
       );
 

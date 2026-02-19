@@ -201,6 +201,18 @@ export const loyaltyTransactions = pgTable("loyalty_transactions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Wallet device registrations (for Apple Wallet pass updates)
+export const walletDeviceRegistrations = pgTable("wallet_device_registrations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  deviceLibraryId: varchar("device_library_id", { length: 255 }).notNull(),
+  passTypeId: varchar("pass_type_id", { length: 255 }).notNull(),
+  serialNumber: uuid("serial_number")
+    .notNull()
+    .references(() => loyaltyCards.id, { onDelete: "cascade" }),
+  pushToken: text("push_token"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Mercado Pago devices
 export const mercadopagoDevices = pgTable("mercadopago_devices", {
   id: uuid("id").defaultRandom().primaryKey(),
