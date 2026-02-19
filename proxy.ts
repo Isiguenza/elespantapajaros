@@ -1,7 +1,7 @@
 import { getAuth } from "@/lib/auth/server";
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/loyalty/register"];
+const PUBLIC_PATHS = ["/loyalty/register", "/loyalty/card", "/api/assets"];
 
 export default function proxy(request: NextRequest) {
   // Allow public paths through without auth

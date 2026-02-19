@@ -56,42 +56,36 @@ export default function LoyaltyRegisterPage() {
 
   // Success state
   if (card) {
+    const cardViewUrl = `/loyalty/card/${card.barcodeValue}`;
     return (
-      <main className="flex min-h-dvh flex-col items-center justify-center bg-gradient-to-b from-indigo-600 to-indigo-800 p-6 text-white">
+      <main className="flex min-h-dvh flex-col items-center justify-center p-6 text-white" style={{ backgroundColor: '#1d271b' }}>
         <div className="w-full max-w-sm space-y-6 text-center">
           <div className="space-y-1">
             <p className="text-4xl">🎉</p>
             <h1 className="text-2xl font-bold">¡Bienvenido!</h1>
-            <p className="text-indigo-200">
+            <p className="text-green-200">
               Tu tarjeta de cliente frecuente está lista
             </p>
           </div>
 
           {/* Visual card */}
           <div className="rounded-2xl bg-white/10 p-6 backdrop-blur-sm">
-            <p className="text-xs uppercase tracking-wider text-indigo-200">
+            <p className="text-xs uppercase tracking-wider text-green-200">
               Espantapájaros
             </p>
             <p className="mt-2 text-xl font-bold">{card.customerName}</p>
-            <div className="mt-4 grid grid-cols-4 gap-2">
+            <div className="mt-4 flex items-center justify-center gap-1.5">
               {Array.from({ length: card.stampsPerReward }).map((_, i) => (
-                <div
-                  key={i}
-                  className={`flex size-10 items-center justify-center rounded-full border-2 ${
-                    i < card.stamps
-                      ? "border-white bg-white/20"
-                      : "border-white/30"
-                  }`}
-                >
-                  {i < card.stamps ? (
-                    <span className="text-sm">🍹</span>
-                  ) : (
-                    <span className="text-xs opacity-40">{i + 1}</span>
-                  )}
+                <div key={i} className="size-12">
+                  <img
+                    src={i < card.stamps ? "/api/assets/hat.png" : "/api/assets/mojito-empty.png"}
+                    alt={i < card.stamps ? "Sello" : "Vacío"}
+                    className="size-full object-contain"
+                  />
                 </div>
               ))}
             </div>
-            <p className="mt-4 font-mono text-xs text-indigo-200">
+            <p className="mt-4 font-mono text-xs text-green-200">
               {card.barcodeValue}
             </p>
           </div>
@@ -107,7 +101,15 @@ export default function LoyaltyRegisterPage() {
             Agregar a Apple Wallet
           </a>
 
-          <p className="text-sm text-indigo-200">
+          {/* Web viewer link */}
+          <a
+            href={cardViewUrl}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-white/30 py-3 px-6 font-semibold text-white transition hover:bg-white/10"
+          >
+            Ver mi tarjeta en la web
+          </a>
+
+          <p className="text-sm text-green-200">
             Muestra tu tarjeta cada vez que compres para acumular sellos y ganar premios 🍹
           </p>
         </div>
@@ -117,12 +119,12 @@ export default function LoyaltyRegisterPage() {
 
   // Registration form
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center bg-gradient-to-b from-indigo-600 to-indigo-800 p-6">
+    <main className="flex min-h-dvh flex-col items-center justify-center p-6" style={{ backgroundColor: '#1d271b' }}>
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center text-white">
           <p className="text-4xl">🍹</p>
           <h1 className="mt-2 text-3xl font-bold">Espantapájaros</h1>
-          <p className="mt-1 text-indigo-200">
+          <p className="mt-1 text-green-200">
             Regístrate y acumula sellos para ganar bebidas gratis
           </p>
         </div>
@@ -140,7 +142,7 @@ export default function LoyaltyRegisterPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="¿Cómo te llamas?"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-green-600 focus:outline-none focus:ring-2 focus:ring-green-600/20"
               autoFocus
             />
           </div>
@@ -155,7 +157,7 @@ export default function LoyaltyRegisterPage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="+52 ..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-green-600 focus:outline-none focus:ring-2 focus:ring-green-600/20"
             />
           </div>
 
@@ -169,7 +171,7 @@ export default function LoyaltyRegisterPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tu@email.com"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-green-600 focus:outline-none focus:ring-2 focus:ring-green-600/20"
             />
           </div>
 
@@ -180,7 +182,7 @@ export default function LoyaltyRegisterPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-indigo-600 py-3 font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50"
+            className="w-full rounded-lg py-3 font-semibold text-white transition disabled:opacity-50" style={{ backgroundColor: '#2d3f2b' }}
           >
             {submitting ? "Registrando..." : "Obtener mi tarjeta"}
           </button>
