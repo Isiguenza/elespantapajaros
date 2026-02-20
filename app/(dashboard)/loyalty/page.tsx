@@ -38,6 +38,8 @@ import {
   DownloadSimple,
   Camera,
   Barcode,
+  ArrowsClockwise,
+  Trash,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -161,6 +163,43 @@ export default function LoyaltyPage() {
     }
   }
 
+  async function handleInvalidateAll() {
+    const confirmed = confirm(
+      "¿Actualizar todos los passes de Apple Wallet? Esto forzará la actualización en los dispositivos de los clientes."
+    );
+    if (!confirmed) return;
+    
+    try {
+      const res = await fetch("/api/wallet/invalidate-all", {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      toast.success(data.message);
+    } catch {
+      toast.error("Error al invalidar passes");
+    }
+  }
+
+  async function handleDeleteCard(cardId: string, cardName: string) {
+    const confirmed = confirm(
+      `¿Eliminar la tarjeta de ${cardName}? Esta acción no se puede deshacer.`
+    );
+    if (!confirmed) return;
+    
+    try {
+      const res = await fetch(`/api/loyalty/${cardId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Tarjeta eliminada");
+      fetchCards();
+      setSelectedCard(null);
+    } catch {
+      toast.error("Error al eliminar tarjeta");
+    }
+  }
+
   function downloadPass(cardId: string) {
     window.open(`/api/wallet/pass/${cardId}`, "_blank");
   }
@@ -181,9 +220,14 @@ export default function LoyaltyPage() {
         <h1 className="text-2xl font-bold tracking-tight">
           Clientes Frecuentes
         </h1>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-1 size-4" /> Nueva Tarjeta
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleInvalidateAll}>
+            <ArrowsClockwise className="mr-1 size-4" /> Actualizar Passes
+          </Button>
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="mr-1 size-4" /> Nueva Tarjeta
+          </Button>
+        </div>
       </div>
 
       {/* Registration QR */}
@@ -362,6 +406,15 @@ export default function LoyaltyPage() {
                           title="Descargar Apple Wallet"
                         >
                           <DownloadSimple className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteCard(card.id, card.customerName)}
+                          title="Eliminar tarjeta"
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash className="size-4" />
                         </Button>
                       </div>
                     </TableCell>
