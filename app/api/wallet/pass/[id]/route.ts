@@ -15,7 +15,7 @@ async function generateStripImage(
 ): Promise<{ strip: Buffer; strip2x: Buffer }> {
   // @2x strip: 750 x 246, 2 rows of 4 stamps
   const W2 = 750, H2 = 246;
-  const STAMP_SIZE = 80;
+  const STAMP_SIZE = 90;
   const COLS = 4;
   const ROWS = 2;
   const GAP = 30;
@@ -173,7 +173,7 @@ export async function GET(
       // Secondary fields
       pass.secondaryFields.push({
         key: "rewards",
-        label: "PREMIOS",
+        label: "BEBIDAS GRATIS",
         value: `${card.rewardsAvailable}`,
       });
 
