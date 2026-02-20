@@ -178,6 +178,7 @@ export const loyaltyCards = pgTable("loyalty_cards", {
   customerPhone: varchar("customer_phone", { length: 20 }),
   customerEmail: varchar("customer_email", { length: 255 }),
   barcodeValue: varchar("barcode_value", { length: 100 }).notNull().unique(),
+  pinHash: varchar("pin_hash", { length: 255 }),
   stamps: integer("stamps").notNull().default(0),
   totalStamps: integer("total_stamps").notNull().default(0),
   rewardsAvailable: integer("rewards_available").notNull().default(0),

@@ -15,6 +15,7 @@ export default function LoyaltyRegisterPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [card, setCard] = useState<CreatedCard | null>(null);
@@ -35,6 +36,7 @@ export default function LoyaltyRegisterPage() {
           customerName: name.trim(),
           customerPhone: phone.trim() || null,
           customerEmail: email.trim() || null,
+          pin: pin.trim() || null,
         }),
       });
       const data = await res.json();
@@ -173,6 +175,25 @@ export default function LoyaltyRegisterPage() {
               placeholder="tu@email.com"
               className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-green-600 focus:outline-none focus:ring-2 focus:ring-green-600/20"
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-gray-700">
+              PIN de seguridad
+              <span className="ml-1 text-xs text-gray-400">(4 dígitos, recomendado)</span>
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+              placeholder="••••"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900 placeholder:text-gray-400 focus:border-green-600 focus:outline-none focus:ring-2 focus:ring-green-600/20"
+            />
+            <p className="text-xs text-gray-500">
+              Para proteger tu tarjeta cuando la consultes en la web
+            </p>
           </div>
 
           {error && (

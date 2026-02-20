@@ -22,18 +22,33 @@ export default function CardViewPage({
   const [card, setCard] = useState<LoyaltyCard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pinRequired, setPinRequired] = useState(false);
+  const [pinVerified, setPinVerified] = useState(false);
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [barcodeValue, setBarcodeValue] = useState("");
 
   useEffect(() => {
     async function fetchCard() {
       try {
-        const { barcodeValue } = await params;
-        const res = await fetch(`/api/loyalty/search?barcode=${encodeURIComponent(barcodeValue)}`);
+        const { barcodeValue: bc } = await params;
+        setBarcodeValue(bc);
+        const res = await fetch(`/api/loyalty/search?barcode=${encodeURIComponent(bc)}`);
         if (!res.ok) {
           setError("Tarjeta no encontrada");
           return;
         }
         const data = await res.json();
-        setCard(data);
+        
+        // Check if card has PIN protection
+        if (data.pinHash) {
+          setPinRequired(true);
+        } else {
+          // No PIN required, show card immediately
+          setCard(data);
+          setPinVerified(true);
+        }
       } catch (err) {
         setError("Error al cargar la tarjeta");
       } finally {
@@ -43,6 +58,42 @@ export default function CardViewPage({
     fetchCard();
   }, [params]);
 
+  async function handlePinSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pin || pin.length !== 4) {
+      setPinError("Ingresa tu PIN de 4 dígitos");
+      return;
+    }
+    
+    setPinError("");
+    setVerifying(true);
+    
+    try {
+      const res = await fetch("/api/loyalty/verify-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcodeValue, pin }),
+      });
+      
+      if (!res.ok) {
+        const data = await res.json();
+        setPinError(data.error || "PIN incorrecto");
+        setPin("");
+        return;
+      }
+      
+      // PIN verified, fetch card data
+      const cardRes = await fetch(`/api/loyalty/search?barcode=${encodeURIComponent(barcodeValue)}`);
+      const cardData = await cardRes.json();
+      setCard(cardData);
+      setPinVerified(true);
+    } catch (err) {
+      setPinError("Error al verificar PIN");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="flex min-h-dvh items-center justify-center" style={{ backgroundColor: '#1d271b' }}>
@@ -51,7 +102,63 @@ export default function CardViewPage({
     );
   }
 
-  if (error || !card) {
+  if (error) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center p-6" style={{ backgroundColor: '#1d271b' }}>
+        <div className="text-center text-white">
+          <p className="text-4xl mb-4">😕</p>
+          <h1 className="text-2xl font-bold mb-2">Tarjeta no encontrada</h1>
+          <p className="text-green-200">{error || "Verifica el código e intenta de nuevo"}</p>
+        </div>
+      </main>
+    );
+  }
+
+  // Show PIN verification screen
+  if (pinRequired && !pinVerified) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center p-6" style={{ backgroundColor: '#1d271b' }}>
+        <div className="w-full max-w-sm space-y-6">
+          <div className="text-center text-white">
+            <p className="text-4xl mb-2">🔒</p>
+            <h1 className="text-2xl font-bold mb-1">Tarjeta protegida</h1>
+            <p className="text-green-200 text-sm">Ingresa tu PIN de 4 dígitos</p>
+          </div>
+
+          <form onSubmit={handlePinSubmit} className="space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                placeholder="••••"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-center text-2xl tracking-widest text-gray-900 placeholder:text-gray-400 focus:border-green-600 focus:outline-none focus:ring-2 focus:ring-green-600/20"
+                autoFocus
+              />
+            </div>
+
+            {pinError && (
+              <p className="text-sm font-medium text-red-600">{pinError}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={verifying}
+              className="w-full rounded-lg py-3 font-semibold text-white transition disabled:opacity-50"
+              style={{ backgroundColor: '#2d3f2b' }}
+            >
+              {verifying ? "Verificando..." : "Ver tarjeta"}
+            </button>
+          </form>
+        </div>
+      </main>
+    );
+  }
+
+  if (!card) {
     return (
       <main className="flex min-h-dvh items-center justify-center p-6" style={{ backgroundColor: '#1d271b' }}>
         <div className="text-center text-white">
