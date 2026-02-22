@@ -196,6 +196,9 @@ async function createMercadoPagoPaymentIntent(order: {
   }
 
   // Try to create payment intent
+  const amount = Math.round(parseFloat(order.total) * 100);
+  console.log(`[MP] Creating payment intent for device ${device.deviceId}, amount: ${amount} centavos (${order.total} pesos)`);
+  
   const response = await fetch(
     `https://api.mercadopago.com/point/integration-api/devices/${device.deviceId}/payment-intents`,
     {
@@ -205,13 +208,15 @@ async function createMercadoPagoPaymentIntent(order: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        amount: Math.round(parseFloat(order.total) * 100),
+        amount,
         additional_info: {
           external_reference: order.id,
         },
       }),
     }
   );
+  
+  console.log(`[MP] Payment intent response status: ${response.status}`);
 
   // If there's a queued intent (409), try to get and cancel it, then retry
   if (response.status === 409) {
@@ -269,17 +274,21 @@ async function createMercadoPagoPaymentIntent(order: {
         throw new Error(`MP API error: ${retryResponse.status} - ${errorData}`);
       }
 
+      console.log(`[MP] Retry successful, payment intent created`);
       return retryResponse.json();
     } catch (cancelError) {
-      console.error("Error canceling previous intent:", cancelError);
+      console.error("[MP] Error canceling previous intent:", cancelError);
       throw new Error("Hay un cobro pendiente en la terminal. Cancélalo desde la terminal e intenta de nuevo.");
     }
   }
 
   if (!response.ok) {
     const errorData = await response.text();
+    console.error(`[MP] API Error ${response.status}:`, errorData);
     throw new Error(`MP API error: ${response.status} - ${errorData}`);
   }
 
-  return response.json();
+  const result = await response.json();
+  console.log(`[MP] Payment intent created successfully:`, result.id);
+  return result;
 }
