@@ -211,6 +211,7 @@ async function createMercadoPagoPaymentIntent(order: {
         amount,
         additional_info: {
           external_reference: order.id,
+          print_on_terminal: true,
         },
       }),
     }
@@ -264,6 +265,7 @@ async function createMercadoPagoPaymentIntent(order: {
             amount: Math.round(parseFloat(order.total) * 100),
             additional_info: {
               external_reference: order.id,
+              print_on_terminal: true,
             },
           }),
         }
