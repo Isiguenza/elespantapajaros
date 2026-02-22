@@ -6,12 +6,14 @@ import { eq } from "drizzle-orm";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    console.log("[Webhook] Received MP notification:", JSON.stringify(body));
 
     // Mercado Pago Point webhook notification
     // The webhook sends payment status updates
     const { action, data } = body;
 
-    if (!data?.id) {
+    if (!data?.id && !body.id) {
+      console.log("[Webhook] No ID in notification, ignoring");
       return NextResponse.json({ received: true });
     }
 
@@ -67,6 +69,7 @@ export async function POST(request: NextRequest) {
     // For Point integration-api notifications
     if (body.state === "FINISHED" && body.payment?.id) {
       const paymentIntentId = body.id;
+      console.log(`[Webhook] Payment FINISHED for intent ${paymentIntentId}`);
       
       // Find order by payment intent ID
       const order = await db.query.orders.findFirst({
@@ -74,6 +77,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (order) {
+        console.log(`[Webhook] Updating order ${order.id} to PAID`);
         await db
           .update(orders)
           .set({
@@ -83,6 +87,8 @@ export async function POST(request: NextRequest) {
             updatedAt: new Date(),
           })
           .where(eq(orders.id, order.id));
+      } else {
+        console.log(`[Webhook] No order found for payment intent ${paymentIntentId}`);
       }
     }
 

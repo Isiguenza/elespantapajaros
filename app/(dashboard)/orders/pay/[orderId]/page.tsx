@@ -150,30 +150,8 @@ export default function PayOrderPage({
         return;
       }
 
-      const responseData = await res.json();
-      const paymentIntentId = responseData.paymentIntentId;
-
-      // Poll for payment status via payment intent
+      // Poll for payment status by checking order status
       const pollInterval = setInterval(async () => {
-        if (paymentIntentId) {
-          const intentRes = await fetch(`/api/mercadopago/payment-intent/${paymentIntentId}`);
-          if (intentRes.ok) {
-            const intentData = await intentRes.json();
-            if (intentData.state === "FINISHED") {
-              clearInterval(pollInterval);
-              setWaitingForTerminal(false);
-              toast.success("Pago confirmado por terminal");
-              router.push("/orders/dispatch");
-            } else if (intentData.state === "CANCELED" || intentData.state === "ERROR") {
-              clearInterval(pollInterval);
-              setWaitingForTerminal(false);
-              setProcessing(false);
-              toast.error("Pago cancelado o rechazado");
-            }
-          }
-        }
-        
-        // Fallback: also check order status
         const statusRes = await fetch(`/api/orders/${orderId}`);
         if (statusRes.ok) {
           const updatedOrder = await statusRes.json();
