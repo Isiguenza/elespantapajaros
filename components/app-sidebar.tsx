@@ -88,6 +88,14 @@ const loyaltyNavItems = [
   },
 ];
 
+const settingsNavItems = [
+  {
+    title: "Mercado Pago",
+    url: "/settings/mercadopago",
+    icon: GearSix,
+  },
+];
+
 export function AppSidebar() {
   const pathname = usePathname();
 
@@ -175,6 +183,26 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {loyaltyNavItems.map((item) => (
+                <SidebarMenuItem key={item.url}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url}>
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Configuración</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {settingsNavItems.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <Link href={item.url}>
