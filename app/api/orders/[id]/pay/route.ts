@@ -57,17 +57,15 @@ export async function POST(
         });
       } catch (mpError) {
         console.error("Mercado Pago error:", mpError);
-        // If MP is not configured, still allow marking as terminal payment
-        await db
-          .update(orders)
-          .set({
-            paymentMethod: "terminal_mercadopago",
-            paymentStatus: "paid",
-            status: "preparing",
-            loyaltyCardId: loyaltyCardId || null,
-            updatedAt: new Date(),
-          })
-          .where(eq(orders.id, id));
+        const errorMessage = mpError instanceof Error ? mpError.message : "Error desconocido";
+        return NextResponse.json(
+          { 
+            error: "Error al procesar pago con Mercado Pago", 
+            details: errorMessage,
+            hint: "Verifica que el Access Token esté configurado y que la terminal esté registrada"
+          }, 
+          { status: 500 }
+        );
       }
     } else {
       // Cash payment - mark as paid immediately

@@ -138,7 +138,17 @@ export default function PayOrderPage({
           loyaltyStamps,
         }),
       });
-      if (!res.ok) throw new Error();
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        toast.error(errorData.error || "Error enviando pago a terminal");
+        if (errorData.hint) {
+          toast.error(errorData.hint, { duration: 5000 });
+        }
+        setProcessing(false);
+        setWaitingForTerminal(false);
+        return;
+      }
 
       // Poll for payment status
       const pollInterval = setInterval(async () => {
@@ -168,7 +178,7 @@ export default function PayOrderPage({
           toast.error("Tiempo de espera agotado");
         }
       }, 120000);
-    } catch {
+    } catch (error) {
       toast.error("Error enviando pago a terminal");
       setProcessing(false);
       setWaitingForTerminal(false);
