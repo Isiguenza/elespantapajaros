@@ -195,6 +195,7 @@ async function createMercadoPagoPaymentIntent(order: {
     throw new Error("No active Mercado Pago device found");
   }
 
+  // Try to create payment intent
   const response = await fetch(
     `https://api.mercadopago.com/point/integration-api/devices/${device.deviceId}/payment-intents`,
     {
@@ -211,6 +212,69 @@ async function createMercadoPagoPaymentIntent(order: {
       }),
     }
   );
+
+  // If there's a queued intent (409), try to get and cancel it, then retry
+  if (response.status === 409) {
+    try {
+      // Get current payment intents
+      const listResponse = await fetch(
+        `https://api.mercadopago.com/point/integration-api/devices/${device.deviceId}/payment-intents`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (listResponse.ok) {
+        const intents = await listResponse.json();
+        // Cancel any open/pending intents
+        if (intents.payment_intents && intents.payment_intents.length > 0) {
+          for (const intent of intents.payment_intents) {
+            if (intent.state === 'OPEN' || intent.state === 'PROCESSING') {
+              await fetch(
+                `https://api.mercadopago.com/point/integration-api/devices/${device.deviceId}/payment-intents/${intent.id}`,
+                {
+                  method: "DELETE",
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                  },
+                }
+              );
+            }
+          }
+        }
+      }
+
+      // Retry creating the payment intent
+      const retryResponse = await fetch(
+        `https://api.mercadopago.com/point/integration-api/devices/${device.deviceId}/payment-intents`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            amount: Math.round(parseFloat(order.total) * 100),
+            additional_info: {
+              external_reference: order.id,
+            },
+          }),
+        }
+      );
+
+      if (!retryResponse.ok) {
+        const errorData = await retryResponse.text();
+        throw new Error(`MP API error: ${retryResponse.status} - ${errorData}`);
+      }
+
+      return retryResponse.json();
+    } catch (cancelError) {
+      console.error("Error canceling previous intent:", cancelError);
+      throw new Error("Hay un cobro pendiente en la terminal. Cancélalo desde la terminal e intenta de nuevo.");
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response.text();
