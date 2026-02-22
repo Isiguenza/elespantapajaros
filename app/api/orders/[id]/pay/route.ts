@@ -36,6 +36,18 @@ export async function POST(
     }
 
     if (paymentMethod === "terminal_mercadopago") {
+      // Validate minimum amount for Mercado Pago (500 cents = $5.00 MXN)
+      const totalAmount = parseFloat(order.total);
+      if (totalAmount < 5) {
+        return NextResponse.json(
+          { 
+            error: "El monto mínimo para pago con terminal es $5.00 MXN",
+            hint: "Para montos menores usa efectivo"
+          }, 
+          { status: 400 }
+        );
+      }
+
       // Create payment intent on Mercado Pago terminal
       try {
         const mpResult = await createMercadoPagoPaymentIntent(order);
