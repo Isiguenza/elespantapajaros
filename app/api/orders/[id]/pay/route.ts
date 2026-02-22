@@ -193,13 +193,8 @@ async function createMercadoPagoPaymentIntent(order: {
       },
       body: JSON.stringify({
         amount: parseFloat(order.total),
-        description: `Orden #${order.orderNumber} - Espantapájaros`,
-        payment: {
-          type: "credit_card",
-        },
         additional_info: {
           external_reference: order.id,
-          print_on_terminal: true,
         },
       }),
     }
