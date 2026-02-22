@@ -204,7 +204,7 @@ async function createMercadoPagoPaymentIntent(order: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        amount: parseFloat(order.total),
+        amount: Math.round(parseFloat(order.total) * 100),
         additional_info: {
           external_reference: order.id,
         },
