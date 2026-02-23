@@ -1,0 +1,395 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Pencil, Trash, User } from "@phosphor-icons/react";
+import { toast } from "sonner";
+
+interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "cashier" | "bartender";
+  employeeCode: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+export default function EmployeesPage() {
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  
+  // Form state
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"admin" | "cashier" | "bartender">("cashier");
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [pin, setPin] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetchEmployees();
+  }, []);
+
+  async function fetchEmployees() {
+    try {
+      const res = await fetch("/api/employees");
+      if (res.ok) {
+        setEmployees(await res.json());
+      }
+    } catch (error) {
+      toast.error("Error cargando empleados");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openCreateDialog() {
+    setEditingEmployee(null);
+    setName("");
+    setEmail("");
+    setRole("cashier");
+    setEmployeeCode("");
+    setPin("");
+    setPinConfirm("");
+    setDialogOpen(true);
+  }
+
+  function openEditDialog(employee: Employee) {
+    setEditingEmployee(employee);
+    setName(employee.name);
+    setEmail(employee.email);
+    setRole(employee.role);
+    setEmployeeCode(employee.employeeCode || "");
+    setPin("");
+    setPinConfirm("");
+    setDialogOpen(true);
+  }
+
+  async function handleSubmit() {
+    if (!name || !email || !role) {
+      toast.error("Nombre, email y rol son requeridos");
+      return;
+    }
+
+    if (pin && pin.length !== 4) {
+      toast.error("El PIN debe tener 4 dígitos");
+      return;
+    }
+
+    if (pin && pin !== pinConfirm) {
+      toast.error("Los PINs no coinciden");
+      return;
+    }
+
+    if (!editingEmployee && !pin) {
+      toast.error("El PIN es requerido para nuevos empleados");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const url = editingEmployee
+        ? `/api/employees/${editingEmployee.id}`
+        : "/api/employees";
+      
+      const method = editingEmployee ? "PATCH" : "POST";
+
+      const body: any = { name, email, role, employeeCode: employeeCode || null };
+      if (pin) body.pin = pin;
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Error");
+      }
+
+      toast.success(
+        editingEmployee ? "Empleado actualizado" : "Empleado creado"
+      );
+      setDialogOpen(false);
+      fetchEmployees();
+    } catch (error: any) {
+      toast.error(error.message || "Error al guardar empleado");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("¿Estás seguro de desactivar este empleado?")) return;
+
+    try {
+      const res = await fetch(`/api/employees/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast.success("Empleado desactivado");
+      fetchEmployees();
+    } catch (error) {
+      toast.error("Error al desactivar empleado");
+    }
+  }
+
+  const roleColors = {
+    admin: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+    cashier: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    bartender: "bg-green-500/10 text-green-600 border-green-500/20",
+  };
+
+  const roleLabels = {
+    admin: "Administrador",
+    cashier: "Cajero",
+    bartender: "Bartender",
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-64">Cargando...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Empleados</h1>
+          <p className="text-muted-foreground">
+            Gestiona empleados y sus PINs de acceso
+          </p>
+        </div>
+        <Button onClick={openCreateDialog}>
+          <Plus className="mr-2 size-4" />
+          Nuevo Empleado
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Lista de Empleados</CardTitle>
+          <CardDescription>
+            {employees.length} empleado{employees.length !== 1 ? "s" : ""} registrado
+            {employees.length !== 1 ? "s" : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nombre</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Código</TableHead>
+                <TableHead>Rol</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {employees.map((employee) => (
+                <TableRow key={employee.id}>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <User className="size-4 text-muted-foreground" />
+                      {employee.name}
+                    </div>
+                  </TableCell>
+                  <TableCell>{employee.email}</TableCell>
+                  <TableCell>
+                    {employee.employeeCode ? (
+                      <code className="text-xs bg-muted px-2 py-1 rounded">
+                        {employee.employeeCode}
+                      </code>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={roleColors[employee.role]}>
+                      {roleLabels[employee.role]}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={employee.active ? "default" : "secondary"}
+                    >
+                      {employee.active ? "Activo" : "Inactivo"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditDialog(employee)}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      {employee.active && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(employee.id)}
+                        >
+                          <Trash className="size-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {employees.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    No hay empleados registrados
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingEmployee ? "Editar Empleado" : "Nuevo Empleado"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingEmployee
+                ? "Actualiza la información del empleado. El PIN solo se actualiza si lo cambias."
+                : "Crea un nuevo empleado con su PIN de acceso."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="name">Nombre *</Label>
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Juan Pérez"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="email">Email *</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="juan@ejemplo.com"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="employeeCode">Código de Empleado</Label>
+              <Input
+                id="employeeCode"
+                value={employeeCode}
+                onChange={(e) => setEmployeeCode(e.target.value)}
+                placeholder="EMP001"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="role">Rol *</Label>
+              <Select value={role} onValueChange={(v: any) => setRole(v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="cashier">Cajero</SelectItem>
+                  <SelectItem value="bartender">Bartender</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="border-t pt-4">
+              <Label htmlFor="pin">
+                PIN (4 dígitos) {editingEmployee ? "" : "*"}
+              </Label>
+              <Input
+                id="pin"
+                type="password"
+                maxLength={4}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                placeholder="1234"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {editingEmployee
+                  ? "Deja en blanco para mantener el PIN actual"
+                  : "El empleado usará este PIN para identificarse"}
+              </p>
+            </div>
+
+            {pin && (
+              <div>
+                <Label htmlFor="pinConfirm">Confirmar PIN *</Label>
+                <Input
+                  id="pinConfirm"
+                  type="password"
+                  maxLength={4}
+                  value={pinConfirm}
+                  onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
+                  placeholder="1234"
+                />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

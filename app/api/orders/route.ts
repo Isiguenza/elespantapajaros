@@ -86,6 +86,8 @@ export async function POST(request: NextRequest) {
         quantity: number;
         unitPrice: number;
         notes: string | null;
+        frostingId?: string | null;
+        frostingName?: string | null;
       }) => ({
         orderId: order.id,
         productId: item.productId,
@@ -94,6 +96,8 @@ export async function POST(request: NextRequest) {
         unitPrice: item.unitPrice.toFixed(2),
         subtotal: (item.unitPrice * item.quantity).toFixed(2),
         notes: item.notes,
+        frostingId: item.frostingId || null,
+        frostingName: item.frostingName || null,
       })
     );
 

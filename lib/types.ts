@@ -40,13 +40,23 @@ export interface ProductIngredient {
   ingredient?: Ingredient;
 }
 
+export interface Frosting {
+  id: string;
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Order {
   id: string;
   orderNumber: number;
   status: "pending" | "preparing" | "ready" | "delivered" | "cancelled";
   total: string;
   paymentStatus: "pending" | "paid" | "failed" | "refunded";
-  paymentMethod: "cash" | "terminal_mercadopago" | "card" | null;
+  paymentMethod: "cash" | "terminal_mercadopago" | "card" | "transfer" | null;
   mercadopagoPaymentId: string | null;
   mercadopagoPaymentIntentId: string | null;
   userId: string | null;
@@ -57,6 +67,7 @@ export interface Order {
   createdAt: Date;
   updatedAt: Date;
   items?: OrderItem[];
+  payments?: OrderPayment[];
   user?: UserProfile | null;
 }
 
@@ -69,6 +80,21 @@ export interface OrderItem {
   unitPrice: string;
   subtotal: string;
   notes: string | null;
+  frostingId: string | null;
+  frostingName: string | null;
+  frosting?: Frosting | null;
+}
+
+export interface OrderPayment {
+  id: string;
+  orderId: string;
+  amount: string;
+  paymentMethod: "cash" | "terminal_mercadopago" | "card" | "transfer";
+  status: "pending" | "completed" | "failed";
+  mercadopagoPaymentIntentId: string | null;
+  mercadopagoPaymentId: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
 }
 
 export interface CartItem {
@@ -77,6 +103,8 @@ export interface CartItem {
   unitPrice: number;
   quantity: number;
   notes: string;
+  frostingId?: string | null;
+  frostingName?: string | null;
 }
 
 export interface CashRegister {
@@ -84,15 +112,24 @@ export interface CashRegister {
   openedBy: string;
   openedAt: Date;
   closedAt: Date | null;
+  closedBy: string | null;
   initialCash: string;
   finalCash: string | null;
   expectedCash: string | null;
+  vouchersTotal: string | null;
+  receiptsTotal: string | null;
   totalSales: string | null;
   totalOrders: number | null;
   difference: string | null;
+  tolerance: string;
   notes: string | null;
+  closureNotes: string | null;
   status: "open" | "closed";
+  voided: boolean;
+  voidedBy: string | null;
+  voidedReason: string | null;
   openedByUser?: UserProfile;
+  closedByUser?: UserProfile | null;
 }
 
 export interface LoyaltyCard {
@@ -117,7 +154,10 @@ export interface UserProfile {
   name: string;
   email: string;
   role: "admin" | "cashier" | "bartender";
+  employeeCode: string | null;
   active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface MercadoPagoDevice {

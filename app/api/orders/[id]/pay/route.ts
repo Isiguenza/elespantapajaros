@@ -19,7 +19,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { paymentMethod, loyaltyCardId, loyaltyStamps } = body;
+    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId } = body;
 
     // Get the order
     const order = await db.query.orders.findFirst({
@@ -59,6 +59,7 @@ export async function POST(
             paymentMethod: "terminal_mercadopago",
             mercadopagoPaymentIntentId: mpResult.id,
             loyaltyCardId: loyaltyCardId || null,
+            userId: userId || null,
             updatedAt: new Date(),
           })
           .where(eq(orders.id, id));
@@ -80,14 +81,15 @@ export async function POST(
         );
       }
     } else {
-      // Cash payment - mark as paid immediately
+      // Cash payment - mark as paid but keep status as pending (will change to preparing after slide confirmation)
       await db
         .update(orders)
         .set({
           paymentMethod: "cash",
           paymentStatus: "paid",
-          status: "preparing",
+          // status stays "pending" - will be changed to "preparing" after slide button confirmation
           loyaltyCardId: loyaltyCardId || null,
+          userId: userId || null,
           updatedAt: new Date(),
         })
         .where(eq(orders.id, id));

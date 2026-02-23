@@ -30,6 +30,7 @@ export const paymentMethodEnum = pgEnum("payment_method", [
   "cash",
   "terminal_mercadopago",
   "card",
+  "transfer",
 ]);
 export const cashRegisterStatusEnum = pgEnum("cash_register_status", [
   "open",
@@ -41,6 +42,13 @@ export const transactionTypeEnum = pgEnum("transaction_type", [
   "adjustment",
   "cash_in",
   "cash_out",
+  "withdrawal",
+  "deposit",
+]);
+export const paymentStatusEnumForPayments = pgEnum("payment_status_payments", [
+  "pending",
+  "completed",
+  "failed",
 ]);
 
 // User profiles (extends Neon Auth users)
@@ -50,6 +58,8 @@ export const userProfiles = pgTable("user_profiles", {
   name: varchar("name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull(),
   role: userRoleEnum("role").notNull().default("cashier"),
+  pinHash: varchar("pin_hash", { length: 255 }),
+  employeeCode: varchar("employee_code", { length: 20 }),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -105,6 +115,17 @@ export const productIngredients = pgTable("product_ingredients", {
   quantityNeeded: decimal("quantity_needed", { precision: 10, scale: 3 }).notNull(),
 });
 
+// Frostings (escarchados)
+export const frostings = pgTable("frostings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Orders
 export const orders = pgTable("orders", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -138,6 +159,25 @@ export const orderItems = pgTable("order_items", {
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   notes: text("notes"),
+  frostingId: uuid("frosting_id").references(() => frostings.id),
+  frostingName: varchar("frosting_name", { length: 255 }),
+});
+
+// Order payments (for split payments)
+export const orderPayments = pgTable("order_payments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderId: uuid("order_id")
+    .notNull()
+    .references(() => orders.id, { onDelete: "cascade" }),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: paymentMethodEnum("payment_method").notNull(),
+  status: paymentStatusEnumForPayments("status").notNull().default("pending"),
+  userId: uuid("user_id").references(() => userProfiles.id),
+  reference: varchar("reference", { length: 255 }),
+  mercadopagoPaymentIntentId: text("mercadopago_payment_intent_id"),
+  mercadopagoPaymentId: text("mercadopago_payment_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
 });
 
 // Cash registers
@@ -148,14 +188,27 @@ export const cashRegisters = pgTable("cash_registers", {
     .references(() => userProfiles.id),
   openedAt: timestamp("opened_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
+  closedBy: uuid("closed_by").references(() => userProfiles.id),
   initialCash: decimal("initial_cash", { precision: 10, scale: 2 }).notNull(),
   finalCash: decimal("final_cash", { precision: 10, scale: 2 }),
   expectedCash: decimal("expected_cash", { precision: 10, scale: 2 }),
+  vouchersTotal: decimal("vouchers_total", { precision: 10, scale: 2 }),
+  receiptsTotal: decimal("receipts_total", { precision: 10, scale: 2 }),
   totalSales: decimal("total_sales", { precision: 10, scale: 2 }).default("0"),
+  cashSales: decimal("cash_sales", { precision: 10, scale: 2 }).default("0"),
+  terminalSales: decimal("terminal_sales", { precision: 10, scale: 2 }).default("0"),
+  transferSales: decimal("transfer_sales", { precision: 10, scale: 2 }).default("0"),
+  withdrawals: decimal("withdrawals", { precision: 10, scale: 2 }).default("0"),
+  deposits: decimal("deposits", { precision: 10, scale: 2 }).default("0"),
   totalOrders: integer("total_orders").default(0),
   difference: decimal("difference", { precision: 10, scale: 2 }),
+  tolerance: decimal("tolerance", { precision: 10, scale: 2 }).default("10"),
   notes: text("notes"),
+  closureNotes: text("closure_notes"),
   status: cashRegisterStatusEnum("status").notNull().default("open"),
+  voided: boolean("voided").notNull().default(false),
+  voidedBy: uuid("voided_by").references(() => userProfiles.id),
+  voidedReason: text("voided_reason"),
 });
 
 // Cash register transactions
@@ -166,8 +219,22 @@ export const cashRegisterTransactions = pgTable("cash_register_transactions", {
     .references(() => cashRegisters.id, { onDelete: "cascade" }),
   type: transactionTypeEnum("type").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: paymentMethodEnum("payment_method"),
   orderId: uuid("order_id").references(() => orders.id),
+  userId: uuid("user_id").references(() => userProfiles.id),
   description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Audit log
+export const auditLog = pgTable("audit_log", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").references(() => userProfiles.id),
+  action: varchar("action", { length: 255 }).notNull(),
+  entityType: varchar("entity_type", { length: 100 }),
+  entityId: uuid("entity_id"),
+  details: text("details"),
+  ipAddress: varchar("ip_address", { length: 45 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -254,8 +321,13 @@ export const productIngredientsRelations = relations(productIngredients, ({ one 
   }),
 }));
 
+export const frostingsRelations = relations(frostings, ({ many }) => ({
+  orderItems: many(orderItems),
+}));
+
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   items: many(orderItems),
+  payments: many(orderPayments),
   user: one(userProfiles, {
     fields: [orders.userId],
     references: [userProfiles.id],
@@ -278,6 +350,17 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   product: one(products, {
     fields: [orderItems.productId],
     references: [products.id],
+  }),
+  frosting: one(frostings, {
+    fields: [orderItems.frostingId],
+    references: [frostings.id],
+  }),
+}));
+
+export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderPayments.orderId],
+    references: [orders.id],
   }),
 }));
 

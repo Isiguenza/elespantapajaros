@@ -30,5 +30,6 @@ export const config = {
     "/loyalty/:path*",
     "/account/:path*",
     "/settings/:path*",
+    "/bar/:path*",
   ],
 };

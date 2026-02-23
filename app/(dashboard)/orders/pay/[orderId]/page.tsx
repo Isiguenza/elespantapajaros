@@ -36,6 +36,8 @@ import {
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import type { Order, LoyaltyCard } from "@/lib/types";
+import { SlideButton } from "@/components/ui/slide-button";
+import { EmployeePinModal } from "@/components/employee-pin-modal";
 
 export default function PayOrderPage({
   params,
@@ -50,6 +52,12 @@ export default function PayOrderPage({
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "terminal_mercadopago" | null>(null);
   const [cashReceived, setCashReceived] = useState("");
   const [waitingForTerminal, setWaitingForTerminal] = useState(false);
+  const [paymentComplete, setPaymentComplete] = useState(false);
+  const [confirmingOrder, setConfirmingOrder] = useState(false);
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [employeeName, setEmployeeName] = useState<string | null>(null);
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [pendingPaymentMethod, setPendingPaymentMethod] = useState<"cash" | "terminal_mercadopago" | null>(null);
 
   // Loyalty
   const [loyaltyCard, setLoyaltyCard] = useState<LoyaltyCard | null>(null);
@@ -101,8 +109,17 @@ export default function PayOrderPage({
     }
   }
 
+  function initiateCashPayment() {
+    if (!employeeId) {
+      setPendingPaymentMethod("cash");
+      setPinModalOpen(true);
+      return;
+    }
+    handlePayCash();
+  }
+
   async function handlePayCash() {
-    if (!order) return;
+    if (!order || !employeeId) return;
     setProcessing(true);
     try {
       const res = await fetch(`/api/orders/${orderId}/pay`, {
@@ -112,11 +129,12 @@ export default function PayOrderPage({
           paymentMethod: "cash",
           loyaltyCardId: loyaltyCard?.id || null,
           loyaltyStamps,
+          userId: employeeId,
         }),
       });
       if (!res.ok) throw new Error();
       toast.success("Pago registrado correctamente");
-      router.push("/orders/dispatch");
+      setPaymentComplete(true);
     } catch {
       toast.error("Error procesando pago");
     } finally {
@@ -124,8 +142,49 @@ export default function PayOrderPage({
     }
   }
 
+  async function handleConfirmOrder() {
+    if (!order || confirmingOrder) return;
+    setConfirmingOrder(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "preparing" }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Orden confirmada y enviada a preparación");
+      router.push("/orders/dispatch");
+    } catch {
+      toast.error("Error confirmando orden");
+      setConfirmingOrder(false);
+    }
+  }
+
+  function initiateTerminalPayment() {
+    if (!employeeId) {
+      setPendingPaymentMethod("terminal_mercadopago");
+      setPinModalOpen(true);
+      return;
+    }
+    handlePayTerminal();
+  }
+
+  function handlePinSuccess(empId: string, empName: string) {
+    setEmployeeId(empId);
+    setEmployeeName(empName);
+    setPinModalOpen(false);
+    
+    // Execute pending payment after PIN verification
+    if (pendingPaymentMethod === "cash") {
+      setTimeout(() => handlePayCash(), 100);
+    } else if (pendingPaymentMethod === "terminal_mercadopago") {
+      setTimeout(() => handlePayTerminal(), 100);
+    }
+    setPendingPaymentMethod(null);
+  }
+
   async function handlePayTerminal() {
-    if (!order) return;
+    if (!order || !employeeId) return;
     setProcessing(true);
     setWaitingForTerminal(true);
     try {
@@ -136,6 +195,7 @@ export default function PayOrderPage({
           paymentMethod: "terminal_mercadopago",
           loyaltyCardId: loyaltyCard?.id || null,
           loyaltyStamps,
+          userId: employeeId,
         }),
       });
       
@@ -159,7 +219,7 @@ export default function PayOrderPage({
             clearInterval(pollInterval);
             setWaitingForTerminal(false);
             toast.success("Pago confirmado por terminal");
-            router.push("/orders/dispatch");
+            setPaymentComplete(true);
           } else if (updatedOrder.paymentStatus === "failed") {
             clearInterval(pollInterval);
             setWaitingForTerminal(false);
@@ -415,8 +475,28 @@ export default function PayOrderPage({
         </Card>
       )}
 
+      {/* Payment Complete - Slide to Confirm */}
+      {paymentComplete && (
+        <Card className="border-green-500 bg-green-50/50">
+          <CardContent className="p-6 space-y-4">
+            <div className="text-center">
+              <Check className="mx-auto size-16 text-green-600 mb-3" weight="bold" />
+              <h3 className="text-2xl font-bold text-green-700">¡Pago Exitoso!</h3>
+              <p className="text-muted-foreground mt-2">
+                Desliza para confirmar y enviar a preparación
+              </p>
+            </div>
+            <SlideButton
+              onSlideComplete={handleConfirmOrder}
+              text="Desliza para confirmar orden"
+              disabled={confirmingOrder}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Pay Button */}
-      {paymentMethod && !waitingForTerminal && (
+      {paymentMethod && !waitingForTerminal && !paymentComplete && (
         <Button
           size="lg"
           className="w-full text-lg"
@@ -425,7 +505,7 @@ export default function PayOrderPage({
             (paymentMethod === "cash" && cashReceivedNum < total)
           }
           onClick={
-            paymentMethod === "cash" ? handlePayCash : handlePayTerminal
+            paymentMethod === "cash" ? initiateCashPayment : initiateTerminalPayment
           }
         >
           {processing ? (
@@ -464,6 +544,18 @@ export default function PayOrderPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Employee PIN Modal */}
+      <EmployeePinModal
+        open={pinModalOpen}
+        onClose={() => {
+          setPinModalOpen(false);
+          setPendingPaymentMethod(null);
+        }}
+        onSuccess={handlePinSuccess}
+        title="Verificación de Empleado"
+        subtitle="Para procesar el pago"
+      />
     </div>
   );
 }

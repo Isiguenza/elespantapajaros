@@ -31,13 +31,22 @@ import {
   MagnifyingGlass,
   X,
 } from "@phosphor-icons/react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
-import type { Product, Category, CartItem } from "@/lib/types";
+import type { Product, Category, CartItem, Frosting } from "@/lib/types";
 
 export default function NewOrderPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [frostings, setFrostings] = useState<Frosting[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -46,6 +55,8 @@ export default function NewOrderPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+  const [frostingDialogOpen, setFrostingDialogOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -53,12 +64,14 @@ export default function NewOrderPage() {
 
   async function fetchData() {
     try {
-      const [productsRes, categoriesRes] = await Promise.all([
+      const [productsRes, categoriesRes, frostingsRes] = await Promise.all([
         fetch("/api/products?active=true"),
         fetch("/api/categories"),
+        fetch("/api/frostings?active=true"),
       ]);
       if (productsRes.ok) setProducts(await productsRes.json());
       if (categoriesRes.ok) setCategories(await categoriesRes.json());
+      if (frostingsRes.ok) setFrostings(await frostingsRes.json());
     } catch (error) {
       toast.error("Error cargando productos");
     } finally {
@@ -74,12 +87,23 @@ export default function NewOrderPage() {
     return matchesCategory && matchesSearch;
   });
 
-  const addToCart = useCallback((product: Product) => {
+  const openFrostingDialog = useCallback((product: Product) => {
+    setSelectedProduct(product);
+    setFrostingDialogOpen(true);
+  }, []);
+
+  const addToCartWithFrosting = useCallback((frostingId: string | null, frostingName: string | null) => {
+    if (!selectedProduct) return;
+
     setCart((prev) => {
-      const existing = prev.find((item) => item.productId === product.id);
+      const existing = prev.find(
+        (item) => 
+          item.productId === selectedProduct.id && 
+          item.frostingId === frostingId
+      );
       if (existing) {
         return prev.map((item) =>
-          item.productId === product.id
+          item.productId === selectedProduct.id && item.frostingId === frostingId
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
@@ -87,21 +111,25 @@ export default function NewOrderPage() {
       return [
         ...prev,
         {
-          productId: product.id,
-          productName: product.name,
-          unitPrice: parseFloat(product.price),
+          productId: selectedProduct.id,
+          productName: selectedProduct.name,
+          unitPrice: parseFloat(selectedProduct.price),
           quantity: 1,
           notes: "",
+          frostingId,
+          frostingName,
         },
       ];
     });
-  }, []);
+    setFrostingDialogOpen(false);
+    setSelectedProduct(null);
+  }, [selectedProduct]);
 
-  const updateQuantity = useCallback((productId: string, delta: number) => {
+  const updateQuantity = useCallback((productId: string, frostingId: string | null | undefined, delta: number) => {
     setCart((prev) =>
       prev
         .map((item) =>
-          item.productId === productId
+          item.productId === productId && item.frostingId === frostingId
             ? { ...item, quantity: Math.max(0, item.quantity + delta) }
             : item
         )
@@ -109,16 +137,16 @@ export default function NewOrderPage() {
     );
   }, []);
 
-  const updateItemNotes = useCallback((productId: string, notes: string) => {
+  const updateItemNotes = useCallback((productId: string, frostingId: string | null | undefined, notes: string) => {
     setCart((prev) =>
       prev.map((item) =>
-        item.productId === productId ? { ...item, notes } : item
+        item.productId === productId && item.frostingId === frostingId ? { ...item, notes } : item
       )
     );
   }, []);
 
-  const removeItem = useCallback((productId: string) => {
-    setCart((prev) => prev.filter((item) => item.productId !== productId));
+  const removeItem = useCallback((productId: string, frostingId: string | null | undefined) => {
+    setCart((prev) => prev.filter((item) => !(item.productId === productId && item.frostingId === frostingId)));
   }, []);
 
   const cartTotal = cart.reduce(
@@ -210,9 +238,14 @@ export default function NewOrderPage() {
                       key={item.productId}
                       className="rounded-lg border p-3 space-y-2"
                     >
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium">{item.productName}</p>
+                          {item.frostingName && (
+                            <p className="text-xs text-blue-600">
+                              Escarchado: {item.frostingName}
+                            </p>
+                          )}
                           <p className="text-sm text-muted-foreground">
                             {formatCurrency(item.unitPrice)} c/u
                           </p>
@@ -220,7 +253,7 @@ export default function NewOrderPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => removeItem(item.productId)}
+                          onClick={() => removeItem(item.productId, item.frostingId)}
                         >
                           <Trash className="size-4 text-destructive" />
                         </Button>
@@ -229,7 +262,7 @@ export default function NewOrderPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => updateQuantity(item.productId, -1)}
+                          onClick={() => updateQuantity(item.productId, item.frostingId, -1)}
                         >
                           <Minus className="size-3" />
                         </Button>
@@ -239,7 +272,7 @@ export default function NewOrderPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => updateQuantity(item.productId, 1)}
+                          onClick={() => updateQuantity(item.productId, item.frostingId, 1)}
                         >
                           <Plus className="size-3" />
                         </Button>
@@ -251,7 +284,7 @@ export default function NewOrderPage() {
                         placeholder="Notas (ej: sin hielo)"
                         value={item.notes}
                         onChange={(e) =>
-                          updateItemNotes(item.productId, e.target.value)
+                          updateItemNotes(item.productId, item.frostingId, e.target.value)
                         }
                         className="text-sm"
                       />
@@ -364,7 +397,7 @@ export default function NewOrderPage() {
                 <Card
                   key={product.id}
                   className="cursor-pointer transition-all hover:shadow-md active:scale-[0.98]"
-                  onClick={() => addToCart(product)}
+                  onClick={() => openFrostingDialog(product)}
                 >
                   <CardContent className="relative p-4">
                     {product.imageUrl ? (
@@ -415,6 +448,61 @@ export default function NewOrderPage() {
           </Button>
         </div>
       )}
+
+      {/* Frosting Selection Dialog */}
+      <Dialog open={frostingDialogOpen} onOpenChange={setFrostingDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Seleccionar Escarchado</DialogTitle>
+            <DialogDescription>
+              {selectedProduct?.name} - Los escarchados son gratuitos
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-4"
+              onClick={() => addToCartWithFrosting(null, null)}
+            >
+              <div className="text-left">
+                <p className="font-medium">Sin Escarchado</p>
+                <p className="text-sm text-muted-foreground">Continuar sin escarchado</p>
+              </div>
+            </Button>
+
+            {frostings.map((frosting) => (
+              <Button
+                key={frosting.id}
+                variant="outline"
+                className="w-full justify-start h-auto py-4"
+                onClick={() => addToCartWithFrosting(frosting.id, frosting.name)}
+              >
+                <div className="text-left">
+                  <p className="font-medium">{frosting.name}</p>
+                  {frosting.description && (
+                    <p className="text-sm text-muted-foreground">
+                      {frosting.description}
+                    </p>
+                  )}
+                </div>
+              </Button>
+            ))}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setFrostingDialogOpen(false);
+                setSelectedProduct(null);
+              }}
+            >
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

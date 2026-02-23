@@ -8,9 +8,18 @@ import {
   CookingPot,
   CurrencyDollar,
   Package,
-  CreditCard,
+  ShoppingCart,
+  Layout,
   Users,
+  TrendUp,
+  Gear,
+  CreditCard,
+  Archive,
+  ChefHat,
+  CashRegister,
   GearSix,
+  Snowflake,
+  UserCircle,
   SignOut,
   PlusCircle,
   ClockCounterClockwise,
@@ -58,12 +67,22 @@ const inventoryNavItems = [
   {
     title: "Productos",
     url: "/inventory/products",
-    icon: Storefront,
+    icon: Package,
+  },
+  {
+    title: "Categorías",
+    url: "/inventory/categories",
+    icon: Archive,
   },
   {
     title: "Ingredientes",
     url: "/inventory/ingredients",
-    icon: Package,
+    icon: ChefHat,
+  },
+  {
+    title: "Escarchados",
+    url: "/inventory/frostings",
+    icon: Snowflake,
   },
 ];
 
@@ -89,6 +108,11 @@ const loyaltyNavItems = [
 ];
 
 const settingsNavItems = [
+  {
+    title: "Empleados",
+    url: "/settings/employees",
+    icon: UserCircle,
+  },
   {
     title: "Mercado Pago",
     url: "/settings/mercadopago",
