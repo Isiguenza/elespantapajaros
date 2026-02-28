@@ -88,6 +88,10 @@ export async function POST(request: NextRequest) {
         notes: string | null;
         frostingId?: string | null;
         frostingName?: string | null;
+        dryToppingId?: string | null;
+        dryToppingName?: string | null;
+        extraId?: string | null;
+        extraName?: string | null;
       }) => ({
         orderId: order.id,
         productId: item.productId,
@@ -98,6 +102,10 @@ export async function POST(request: NextRequest) {
         notes: item.notes,
         frostingId: item.frostingId || null,
         frostingName: item.frostingName || null,
+        dryToppingId: item.dryToppingId || null,
+        dryToppingName: item.dryToppingName || null,
+        extraId: item.extraId || null,
+        extraName: item.extraName || null,
       })
     );
 

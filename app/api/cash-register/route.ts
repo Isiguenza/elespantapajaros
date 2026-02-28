@@ -25,7 +25,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { initialCash } = body;
+    const { initialCash, employeeId } = body;
+
+    if (!employeeId) {
+      return NextResponse.json(
+        { error: "Se requiere identificación del empleado" },
+        { status: 400 }
+      );
+    }
 
     // Check if there's already an open register
     const existing = await db.query.cashRegisters.findFirst({
@@ -42,17 +49,23 @@ export async function POST(request: NextRequest) {
     const [register] = await db
       .insert(cashRegisters)
       .values({
-        openedBy: "00000000-0000-0000-0000-000000000000", // placeholder until auth wired
+        openedBy: employeeId,
         initialCash: initialCash.toFixed(2),
         totalSales: "0",
+        cashSales: "0",
+        terminalSales: "0",
+        transferSales: "0",
+        withdrawals: "0",
+        deposits: "0",
         totalOrders: 0,
         status: "open",
+        tolerance: "10",
       })
       .returning();
 
     return NextResponse.json(register, { status: 201 });
   } catch (error) {
     console.error("Error opening cash register:", error);
-    return NextResponse.json({ error: "Error" }, { status: 500 });
+    return NextResponse.json({ error: "Error abriendo caja" }, { status: 500 });
   }
 }

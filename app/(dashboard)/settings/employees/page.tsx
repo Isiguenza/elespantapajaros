@@ -61,6 +61,8 @@ export default function EmployeesPage() {
   const [employeeCode, setEmployeeCode] = useState("");
   const [pin, setPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -88,6 +90,8 @@ export default function EmployeesPage() {
     setEmployeeCode("");
     setPin("");
     setPinConfirm("");
+    setPassword("");
+    setPasswordConfirm("");
     setDialogOpen(true);
   }
 
@@ -99,6 +103,8 @@ export default function EmployeesPage() {
     setEmployeeCode(employee.employeeCode || "");
     setPin("");
     setPinConfirm("");
+    setPassword("");
+    setPasswordConfirm("");
     setDialogOpen(true);
   }
 
@@ -123,6 +129,17 @@ export default function EmployeesPage() {
       return;
     }
 
+    // Validar contraseña
+    if (password && password.length < 6) {
+      toast.error("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+
+    if (password && password !== passwordConfirm) {
+      toast.error("Las contraseñas no coinciden");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -134,6 +151,7 @@ export default function EmployeesPage() {
 
       const body: any = { name, email, role, employeeCode: employeeCode || null };
       if (pin) body.pin = pin;
+      if (password) body.password = password;
 
       const res = await fetch(url, {
         method,
@@ -375,6 +393,37 @@ export default function EmployeesPage() {
                   value={pinConfirm}
                   onChange={(e) => setPinConfirm(e.target.value.replace(/\D/g, ""))}
                   placeholder="1234"
+                />
+              </div>
+            )}
+
+            <div className="border-t pt-4">
+              <Label htmlFor="password">
+                Contraseña para Dashboard {editingEmployee ? "(opcional)" : ""}
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {editingEmployee
+                  ? "Deja en blanco para mantener la contraseña actual"
+                  : "Para acceder al dashboard"}
+              </p>
+            </div>
+
+            {password && (
+              <div>
+                <Label htmlFor="passwordConfirm">Confirmar Contraseña *</Label>
+                <Input
+                  id="passwordConfirm"
+                  type="password"
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  placeholder="Confirma la contraseña"
                 />
               </div>
             )}

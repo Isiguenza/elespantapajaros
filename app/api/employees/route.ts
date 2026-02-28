@@ -23,7 +23,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, role, pin, employeeCode } = body;
+    const { name, email, role, pin, password, employeeCode } = body;
 
     if (!name || !email || !role) {
       return NextResponse.json(
@@ -57,7 +57,15 @@ export async function POST(request: NextRequest) {
       pinHash = await bcrypt.hash(pin, 10);
     }
 
-    // For employees created directly (not via auth), use email as authUserId
+    // Hash password if provided
+    let passwordHash = null;
+    if (password) {
+      passwordHash = await bcrypt.hash(password, 10);
+    }
+
+    // Create employee with simple authUserId
+    const authUserId = `employee_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
     const [employee] = await db
       .insert(userProfiles)
       .values({
@@ -65,14 +73,15 @@ export async function POST(request: NextRequest) {
         email,
         role,
         pinHash,
+        passwordHash,
         employeeCode: employeeCode || null,
-        authUserId: `employee_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        authUserId,
         active: true,
       })
       .returning();
 
-    // Don't return pinHash
-    const { pinHash: _, ...sanitized } = employee;
+    // Don't return sensitive data
+    const { pinHash: _, passwordHash: __, ...sanitized } = employee;
 
     return NextResponse.json(sanitized, { status: 201 });
   } catch (error) {

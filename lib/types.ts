@@ -1,14 +1,25 @@
+export interface Group {
+  id: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  active: boolean;
+  createdAt: Date;
+}
+
 export interface Product {
   id: string;
   name: string;
   description: string | null;
   price: string;
   categoryId: string | null;
+  groupId: string | null;
   imageUrl: string | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
   category?: Category | null;
+  group?: Group | null;
   ingredients?: ProductIngredient[];
 }
 
@@ -50,6 +61,27 @@ export interface Frosting {
   updatedAt: Date;
 }
 
+export interface DryTopping {
+  id: string;
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Extra {
+  id: string;
+  name: string;
+  description: string | null;
+  price: string;
+  sortOrder: number;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Order {
   id: string;
   orderNumber: number;
@@ -82,7 +114,13 @@ export interface OrderItem {
   notes: string | null;
   frostingId: string | null;
   frostingName: string | null;
+  dryToppingId: string | null;
+  dryToppingName: string | null;
+  extraId: string | null;
+  extraName: string | null;
   frosting?: Frosting | null;
+  dryTopping?: DryTopping | null;
+  extra?: Extra | null;
 }
 
 export interface OrderPayment {
@@ -103,8 +141,12 @@ export interface CartItem {
   unitPrice: number;
   quantity: number;
   notes: string;
-  frostingId?: string | null;
-  frostingName?: string | null;
+  frostingId?: string | null | undefined;
+  frostingName?: string | null | undefined;
+  dryToppingId?: string | null | undefined;
+  dryToppingName?: string | null | undefined;
+  extraId?: string | null | undefined;
+  extraName?: string | null | undefined;
 }
 
 export interface CashRegister {
@@ -119,6 +161,11 @@ export interface CashRegister {
   vouchersTotal: string | null;
   receiptsTotal: string | null;
   totalSales: string | null;
+  cashSales: string | null;
+  terminalSales: string | null;
+  transferSales: string | null;
+  withdrawals: string | null;
+  deposits: string | null;
   totalOrders: number | null;
   difference: string | null;
   tolerance: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,13 +14,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { EmployeePinModal } from "@/components/employee-pin-modal";
+import { EmployeeNumpadModal } from "@/components/employee-numpad-modal";
 
 interface CashRegisterCloseModalProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
   registerId: string;
+  userRole?: string; // admin, manager, cashier
   summary: {
     initialCash: number;
     expectedCash: number;
@@ -38,6 +39,7 @@ export function CashRegisterCloseModal({
   onClose,
   onSuccess,
   registerId,
+  userRole = "cashier",
   summary,
 }: CashRegisterCloseModalProps) {
   const [finalCash, setFinalCash] = useState("");
@@ -54,6 +56,9 @@ export function CashRegisterCloseModal({
   const [supervisorId, setSupervisorId] = useState<string | null>(null);
   const [supervisorReason, setSupervisorReason] = useState("");
   const [supervisorPinModalOpen, setSupervisorPinModalOpen] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  
+  const isAdmin = userRole === "admin" || userRole === "manager";
 
   const finalCashNum = parseFloat(finalCash) || 0;
   const difference = finalCashNum - summary.expectedCash;
@@ -66,18 +71,51 @@ export function CashRegisterCloseModal({
       currency: "MXN",
     }).format(amount);
 
+  // Reset state when modal opens
+  useEffect(() => {
+    if (open) {
+      resetForm();
+    }
+  }, [open]);
+
+  // Update requiresSupervisor when difference changes
+  useEffect(() => {
+    if (absDifference > tolerance && finalCashNum > 0) {
+      setRequiresSupervisor(true);
+    } else {
+      setRequiresSupervisor(false);
+      setSupervisorReason("");
+    }
+  }, [absDifference, tolerance, finalCashNum]);
+
   function handleEmployeePinSuccess(empId: string, empName: string) {
     setEmployeeId(empId);
     setEmployeeName(empName);
     setPinModalOpen(false);
     
-    // Check if requires supervisor
+    // Check if requires supervisor/confirmation
     if (absDifference > tolerance) {
-      setRequiresSupervisor(true);
-      setSupervisorPinModalOpen(true);
+      if (isAdmin) {
+        // Admin solo necesita confirmar
+        setShowConfirmDialog(true);
+      } else {
+        // Cajero necesita supervisor
+        setRequiresSupervisor(true);
+        setSupervisorPinModalOpen(true);
+      }
     } else {
       handleCloseRegister(empId, null, null);
     }
+  }
+
+  function handleConfirmWithDifference() {
+    if (!supervisorReason.trim()) {
+      toast.error("Debes ingresar el motivo de la diferencia");
+      return;
+    }
+    setShowConfirmDialog(false);
+    // Admin acepta la diferencia sin necesidad de otro PIN
+    handleCloseRegister(employeeId!, null, supervisorReason);
   }
 
   function handleSupervisorPinSuccess(supId: string, supName: string) {
@@ -161,9 +199,16 @@ export function CashRegisterCloseModal({
     handleCloseRegister(employeeId, supervisorId, supervisorReason);
   }
 
+  function handleDialogClose(isOpen: boolean) {
+    if (!isOpen) {
+      resetForm();
+      onClose();
+    }
+  }
+
   return (
     <>
-      <Dialog open={open} onOpenChange={onClose}>
+      <Dialog open={open} onOpenChange={handleDialogClose}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Cerrar Caja</DialogTitle>
@@ -234,7 +279,7 @@ export function CashRegisterCloseModal({
                 />
               </div>
 
-              {finalCash && (
+              {finalCash && parseFloat(finalCash) > 0 && (
                 <div className={`rounded-lg p-4 ${
                   absDifference <= tolerance
                     ? "bg-green-50 border border-green-200"
@@ -322,7 +367,7 @@ export function CashRegisterCloseModal({
       </Dialog>
 
       {/* Employee PIN Modal */}
-      <EmployeePinModal
+      <EmployeeNumpadModal
         open={pinModalOpen}
         onClose={() => setPinModalOpen(false)}
         onSuccess={handleEmployeePinSuccess}
@@ -331,13 +376,60 @@ export function CashRegisterCloseModal({
       />
 
       {/* Supervisor PIN Modal */}
-      <EmployeePinModal
+      <EmployeeNumpadModal
         open={supervisorPinModalOpen}
         onClose={() => setSupervisorPinModalOpen(false)}
         onSuccess={handleSupervisorPinSuccess}
         title="Autorización de Supervisor"
         subtitle="Diferencia excede tolerancia"
       />
+
+      {/* Admin Confirmation Dialog */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>⚠️ Confirmar Cierre con Diferencia</DialogTitle>
+            <DialogDescription>
+              La diferencia de {difference >= 0 ? "+" : ""}{formatCurrency(difference)} excede la tolerancia de ±{formatCurrency(tolerance)}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg bg-yellow-50 border border-yellow-200 p-4">
+              <p className="text-sm text-yellow-800">
+                <strong>Efectivo esperado:</strong> {formatCurrency(summary.expectedCash)}
+              </p>
+              <p className="text-sm text-yellow-800">
+                <strong>Efectivo contado:</strong> {formatCurrency(finalCashNum)}
+              </p>
+              <p className="text-sm text-yellow-800 font-bold mt-2">
+                <strong>Diferencia:</strong> {difference >= 0 ? "+" : ""}{formatCurrency(difference)}
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="adminReason">Motivo de la Diferencia *</Label>
+              <Textarea
+                id="adminReason"
+                placeholder="Explica el motivo de la diferencia..."
+                value={supervisorReason}
+                onChange={(e) => setSupervisorReason(e.target.value)}
+                rows={3}
+                className="mt-2"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleConfirmWithDifference}>
+              Confirmar y Cerrar Caja
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -1,35 +1,44 @@
-import { getAuth } from "@/lib/auth/server";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
-const PUBLIC_PATHS = ["/loyalty/register", "/loyalty/card", "/api/assets"];
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || 'your-secret-key-change-in-production'
+);
 
-export default function proxy(request: NextRequest) {
-  // Allow public paths through without auth
-  if (PUBLIC_PATHS.some((p) => request.nextUrl.pathname.startsWith(p))) {
+export default async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Public routes that don't need authentication
+  const publicRoutes = ['/login', '/bar', '/dispatch', '/orders'];
+  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route));
+  
+  if (isPublicRoute) {
     return NextResponse.next();
   }
 
+  // Check for auth token
+  const token = request.cookies.get('auth_token')?.value;
+
+  if (!token) {
+    // Redirect to login if accessing protected route without token
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
   try {
-    const auth = getAuth();
-    const mw = auth.middleware({
-      loginUrl: "/auth/sign-in",
-    });
-    return mw(request);
-  } catch {
-    // If auth is not configured, allow request through
+    // Verify JWT token
+    await jwtVerify(token, JWT_SECRET);
     return NextResponse.next();
+  } catch (error) {
+    // Invalid token, redirect to login
+    const response = NextResponse.redirect(new URL('/login', request.url));
+    response.cookies.delete('auth_token');
+    return response;
   }
 }
 
 export const config = {
   matcher: [
-    "/dashboard/:path*",
-    "/orders/:path*",
-    "/inventory/:path*",
-    "/cash-register/:path*",
-    "/loyalty/:path*",
-    "/account/:path*",
-    "/settings/:path*",
-    "/bar/:path*",
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 };

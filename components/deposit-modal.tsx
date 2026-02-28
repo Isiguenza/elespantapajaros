@@ -32,8 +32,8 @@ export function DepositModal({
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [pinModalOpen, setPinModalOpen] = useState(false);
+  // TEMPORAL: Bypass PIN - usar empleado test
+  const employeeId = "b0faa020-4757-4018-b6d6-a97ef5a5851f";
 
   const formatCurrency = (num: number) =>
     new Intl.NumberFormat("es-MX", {
@@ -41,13 +41,7 @@ export function DepositModal({
       currency: "MXN",
     }).format(num);
 
-  function handlePinSuccess(empId: string, empName: string) {
-    setEmployeeId(empId);
-    setPinModalOpen(false);
-    handleDeposit(empId);
-  }
-
-  async function handleDeposit(userId: string) {
+  async function handleDeposit() {
     const amountNum = parseFloat(amount);
 
     if (!amountNum || amountNum <= 0) {
@@ -63,7 +57,7 @@ export function DepositModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: amountNum,
-          userId,
+          userId: employeeId,
           description: description.trim() || "Ingreso a caja",
         }),
       });
@@ -86,15 +80,6 @@ export function DepositModal({
   function resetForm() {
     setAmount("");
     setDescription("");
-    setEmployeeId(null);
-  }
-
-  function initiateDeposit() {
-    if (!employeeId) {
-      setPinModalOpen(true);
-      return;
-    }
-    handleDeposit(employeeId);
   }
 
   return (
@@ -139,33 +124,18 @@ export function DepositModal({
               />
             </div>
 
-            {employeeId && (
-              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
-                <p className="text-sm text-blue-800">
-                  ✓ Empleado verificado
-                </p>
-              </div>
-            )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={onClose} disabled={loading}>
               Cancelar
             </Button>
-            <Button onClick={initiateDeposit} disabled={loading}>
+            <Button onClick={handleDeposit} disabled={loading}>
               {loading ? "Procesando..." : "Registrar Ingreso"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <EmployeePinModal
-        open={pinModalOpen}
-        onClose={() => setPinModalOpen(false)}
-        onSuccess={handlePinSuccess}
-        title="Identificación de Empleado"
-        subtitle="Para autorizar el ingreso"
-      />
     </>
   );
 }

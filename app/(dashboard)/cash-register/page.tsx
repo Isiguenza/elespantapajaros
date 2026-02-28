@@ -35,51 +35,79 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { CashRegister } from "@/lib/types";
+import { CashRegisterCloseModal } from "@/components/cash-register-close-modal";
+import { WithdrawModal } from "@/components/withdraw-modal";
+import { DepositModal } from "@/components/deposit-modal";
+import { EmployeePinModal } from "@/components/employee-pin-modal";
 
 export default function CashRegisterPage() {
   const [register, setRegister] = useState<CashRegister | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   // Open dialog
   const [openDialogVisible, setOpenDialogVisible] = useState(false);
   const [initialCash, setInitialCash] = useState("");
+  const [openingEmployeeId, setOpeningEmployeeId] = useState<string | null>(null);
+  const [pinModalForOpen, setPinModalForOpen] = useState(false);
 
-  // Close dialog
-  const [closeDialogVisible, setCloseDialogVisible] = useState(false);
-  const [finalCash, setFinalCash] = useState("");
-  const [closeNotes, setCloseNotes] = useState("");
-
-  // Cash movement dialog
-  const [movementDialogVisible, setMovementDialogVisible] = useState(false);
-  const [movementType, setMovementType] = useState<"cash_in" | "cash_out">("cash_in");
-  const [movementAmount, setMovementAmount] = useState("");
-  const [movementDesc, setMovementDesc] = useState("");
+  // Advanced modals
+  const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [closeModalKey, setCloseModalKey] = useState(0);
+  const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [depositModalOpen, setDepositModalOpen] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchCurrentRegister();
+    loadData();
   }, []);
 
-  async function fetchCurrentRegister() {
+  async function loadData() {
     try {
-      const res = await fetch("/api/cash-register/current");
-      if (res.ok) {
-        const data = await res.json();
+      // Cargar usuario primero
+      const userRes = await fetch("/api/auth/me");
+      if (userRes.ok) {
+        const user = await userRes.json();
+        setCurrentUser(user);
+      }
+
+      // Luego cargar registro
+      const registerRes = await fetch("/api/cash-register/current");
+      if (registerRes.ok) {
+        const data = await registerRes.json();
         setRegister(data);
-      } else if (res.status === 404) {
+      } else if (registerRes.status === 404) {
         setRegister(null);
       }
-    } catch {
-      console.error("Error fetching register");
+    } catch (error) {
+      console.error("Error loading data:", error);
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleOpen() {
-    if (!initialCash || parseFloat(initialCash) < 0) {
+  function initiateOpen() {
+    const amount = parseFloat(initialCash);
+    if (!initialCash || isNaN(amount) || amount <= 0) {
       toast.error("Ingresa un monto inicial válido");
+      return;
+    }
+    
+    if (!currentUser) {
+      toast.error("No hay usuario autenticado");
+      return;
+    }
+    
+    // Usar usuario autenticado del dashboard
+    setOpeningEmployeeId(currentUser.id);
+    setOpenDialogVisible(false);
+    handleOpenPinSuccess(currentUser.id, currentUser.name);
+  }
+
+  async function handleOpen() {
+    if (!openingEmployeeId) {
+      toast.error("Debes identificarte primero");
       return;
     }
     setSubmitting(true);
@@ -87,13 +115,17 @@ export default function CashRegisterPage() {
       const res = await fetch("/api/cash-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initialCash: parseFloat(initialCash) }),
+        body: JSON.stringify({ 
+          initialCash: parseFloat(initialCash),
+          employeeId: openingEmployeeId,
+        }),
       });
       if (!res.ok) throw new Error();
       toast.success("Caja abierta");
       setOpenDialogVisible(false);
       setInitialCash("");
-      fetchCurrentRegister();
+      setOpeningEmployeeId(null);
+      loadData();
     } catch {
       toast.error("Error abriendo caja");
     } finally {
@@ -101,61 +133,34 @@ export default function CashRegisterPage() {
     }
   }
 
-  async function handleClose() {
-    if (!finalCash) {
-      toast.error("Ingresa el efectivo final");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/cash-register/${register!.id}/close`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          finalCash: parseFloat(finalCash),
-          notes: closeNotes || null,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      toast.success("Caja cerrada — corte realizado");
-      setCloseDialogVisible(false);
-      setFinalCash("");
-      setCloseNotes("");
-      fetchCurrentRegister();
-    } catch {
-      toast.error("Error cerrando caja");
-    } finally {
-      setSubmitting(false);
-    }
+  function handleOpenPinSuccess(empId: string, empName: string) {
+    setOpeningEmployeeId(empId);
+    setPinModalForOpen(false);
+    toast.success(`Identificado: ${empName}`);
+    // Abrir caja después de autenticación
+    setTimeout(() => handleOpen(), 100);
   }
 
-  async function handleMovement() {
-    if (!movementAmount || parseFloat(movementAmount) <= 0) {
-      toast.error("Ingresa un monto válido");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/cash-register/${register!.id}/transaction`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: movementType,
-          amount: parseFloat(movementAmount),
-          description: movementDesc || null,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      toast.success(movementType === "cash_in" ? "Entrada registrada" : "Salida registrada");
-      setMovementDialogVisible(false);
-      setMovementAmount("");
-      setMovementDesc("");
-      fetchCurrentRegister();
-    } catch {
-      toast.error("Error registrando movimiento");
-    } finally {
-      setSubmitting(false);
-    }
+  async function handleCloseSuccess() {
+    toast.success("Caja cerrada exitosamente");
+    setCloseModalOpen(false);
+    await loadData();
+  }
+
+  function handleCloseModalOpen() {
+    // Force fresh state by incrementing key (forces re-mount)
+    setCloseModalKey(prev => prev + 1);
+    setCloseModalOpen(true);
+  }
+
+  function handleWithdrawSuccess() {
+    setWithdrawModalOpen(false);
+    loadData();
+  }
+
+  function handleDepositSuccess() {
+    setDepositModalOpen(false);
+    loadData();
   }
 
   const formatCurrency = (amount: string | number | null) => {
@@ -222,8 +227,8 @@ export default function CashRegisterPage() {
               <Button variant="outline" onClick={() => setOpenDialogVisible(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleOpen} disabled={submitting}>
-                {submitting ? "Abriendo..." : "Abrir Caja"}
+              <Button onClick={initiateOpen} disabled={submitting}>
+                {submitting ? "Abriendo..." : "Continuar"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -233,8 +238,12 @@ export default function CashRegisterPage() {
   }
 
   // Register is open
+  // expectedCash = initialCash + cashSales - withdrawals + deposits
   const expectedCash =
-    parseFloat(register.initialCash) + parseFloat(register.totalSales || "0");
+    parseFloat(register.initialCash) + 
+    parseFloat(register.cashSales || "0") - 
+    parseFloat(register.withdrawals || "0") + 
+    parseFloat(register.deposits || "0");
 
   return (
     <div className="space-y-6">
@@ -298,139 +307,67 @@ export default function CashRegisterPage() {
       <div className="flex gap-3">
         <Button
           variant="outline"
-          onClick={() => {
-            setMovementType("cash_in");
-            setMovementDialogVisible(true);
-          }}
+          onClick={() => setDepositModalOpen(true)}
         >
           <ArrowDown className="mr-1 size-4 text-green-600" />
-          Entrada de Efectivo
+          Depósito
         </Button>
         <Button
           variant="outline"
-          onClick={() => {
-            setMovementType("cash_out");
-            setMovementDialogVisible(true);
-          }}
+          onClick={() => setWithdrawModalOpen(true)}
         >
           <ArrowUp className="mr-1 size-4 text-red-600" />
-          Salida de Efectivo
+          Sangría (Retiro)
         </Button>
         <div className="flex-1" />
-        <Button variant="destructive" onClick={() => setCloseDialogVisible(true)}>
+        <Button variant="destructive" onClick={handleCloseModalOpen}>
           <Lock className="mr-1 size-4" />
           Cerrar Caja / Corte
         </Button>
       </div>
 
-      {/* Close Dialog */}
-      <Dialog open={closeDialogVisible} onOpenChange={setCloseDialogVisible}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cerrar Caja — Corte</DialogTitle>
-            <DialogDescription>
-              Cuenta el efectivo en caja y registra el monto final
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg bg-muted p-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Efectivo inicial</span>
-                <span>{formatCurrency(register.initialCash)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span>Ventas en efectivo</span>
-                <span>{formatCurrency(register.totalSales)}</span>
-              </div>
-              <Separator />
-              <div className="flex justify-between font-bold">
-                <span>Esperado</span>
-                <span>{formatCurrency(expectedCash)}</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Efectivo contado en caja</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={finalCash}
-                onChange={(e) => setFinalCash(e.target.value)}
-                placeholder="0.00"
-                className="text-xl"
-                autoFocus
-              />
-              {finalCash && (
-                <div
-                  className={`rounded p-2 text-center font-bold ${
-                    parseFloat(finalCash) - expectedCash >= 0
-                      ? "bg-green-50 text-green-700"
-                      : "bg-red-50 text-red-700"
-                  }`}
-                >
-                  Diferencia: {formatCurrency(parseFloat(finalCash) - expectedCash)}
-                </div>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>Notas (opcional)</Label>
-              <Textarea
-                value={closeNotes}
-                onChange={(e) => setCloseNotes(e.target.value)}
-                placeholder="Observaciones del corte"
-                rows={2}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCloseDialogVisible(false)}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={handleClose} disabled={submitting}>
-              {submitting ? "Cerrando..." : "Cerrar Caja"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Advanced Modals */}
+      {register && (
+        <>
+          <CashRegisterCloseModal
+            key={closeModalKey}
+            open={closeModalOpen}
+            onClose={() => setCloseModalOpen(false)}
+            onSuccess={handleCloseSuccess}
+            registerId={register.id}
+            userRole={currentUser?.role || "cashier"}
+            summary={{
+              initialCash: parseFloat(register.initialCash),
+              expectedCash,
+              totalSales: parseFloat(register.totalSales || "0"),
+              cashSales: parseFloat(register.cashSales || "0"),
+              terminalSales: parseFloat(register.terminalSales || "0"),
+              transferSales: parseFloat(register.transferSales || "0"),
+              withdrawals: parseFloat(register.withdrawals || "0"),
+              deposits: parseFloat(register.deposits || "0"),
+            }}
+          />
+          <WithdrawModal
+            open={withdrawModalOpen}
+            onClose={() => setWithdrawModalOpen(false)}
+            onSuccess={handleWithdrawSuccess}
+            registerId={register.id}
+          />
+          <DepositModal
+            open={depositModalOpen}
+            onClose={() => setDepositModalOpen(false)}
+            onSuccess={handleDepositSuccess}
+            registerId={register.id}
+          />
+        </>
+      )}
 
-      {/* Movement Dialog */}
-      <Dialog open={movementDialogVisible} onOpenChange={setMovementDialogVisible}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {movementType === "cash_in" ? "Entrada de Efectivo" : "Salida de Efectivo"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Monto</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={movementAmount}
-                onChange={(e) => setMovementAmount(e.target.value)}
-                placeholder="0.00"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Descripción</Label>
-              <Input
-                value={movementDesc}
-                onChange={(e) => setMovementDesc(e.target.value)}
-                placeholder="Ej: Cambio de billetes"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMovementDialogVisible(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleMovement} disabled={submitting}>
-              {submitting ? "Registrando..." : "Registrar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* TODO: Implementar PIN Modal mejorado
+          - Usar PinPad directamente (sin email)
+          - Pedir número de empleado con numpad
+          - Luego pedir PIN con numpad
+          - Similar al flujo de PinPad actual pero con número de empleado primero
+      */}
     </div>
   );
 }

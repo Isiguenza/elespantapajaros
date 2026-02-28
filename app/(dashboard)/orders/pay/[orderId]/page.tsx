@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import type { Order, LoyaltyCard } from "@/lib/types";
 import { SlideButton } from "@/components/ui/slide-button";
 import { EmployeePinModal } from "@/components/employee-pin-modal";
+import { SplitPaymentModal } from "@/components/split-payment-modal";
 
 export default function PayOrderPage({
   params,
@@ -65,6 +66,9 @@ export default function PayOrderPage({
   const [loyaltyStamps, setLoyaltyStamps] = useState(1);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [loyaltySearching, setLoyaltySearching] = useState(false);
+
+  // Split payment
+  const [splitPaymentOpen, setSplitPaymentOpen] = useState(false);
 
   useEffect(() => {
     fetchOrder();
@@ -555,6 +559,18 @@ export default function PayOrderPage({
         onSuccess={handlePinSuccess}
         title="Verificación de Empleado"
         subtitle="Para procesar el pago"
+      />
+
+      {/* Split Payment Modal */}
+      <SplitPaymentModal
+        open={splitPaymentOpen}
+        onClose={() => setSplitPaymentOpen(false)}
+        onSuccess={() => {
+          setSplitPaymentOpen(false);
+          router.push("/orders");
+        }}
+        orderId={orderId}
+        total={total}
       />
     </div>
   );

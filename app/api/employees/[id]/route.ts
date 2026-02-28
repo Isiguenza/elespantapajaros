@@ -11,7 +11,7 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, email, role, pin, employeeCode, active } = body;
+    const { name, email, role, pin, password, employeeCode, active } = body;
 
     const updateData: any = {};
 
@@ -32,6 +32,11 @@ export async function PATCH(
       updateData.pinHash = await bcrypt.hash(pin, 10);
     }
 
+    // Handle password update
+    if (password) {
+      updateData.passwordHash = await bcrypt.hash(password, 10);
+    }
+
     updateData.updatedAt = new Date();
 
     const [updated] = await db
@@ -44,8 +49,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Employee not found" }, { status: 404 });
     }
 
-    // Don't return pinHash
-    const { pinHash: _, ...sanitized } = updated;
+    // Don't return sensitive data
+    const { pinHash: _, passwordHash: __, ...sanitized } = updated;
 
     return NextResponse.json(sanitized);
   } catch (error) {

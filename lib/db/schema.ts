@@ -59,10 +59,21 @@ export const userProfiles = pgTable("user_profiles", {
   email: varchar("email", { length: 255 }).notNull(),
   role: userRoleEnum("role").notNull().default("cashier"),
   pinHash: varchar("pin_hash", { length: 255 }),
+  passwordHash: varchar("password_hash", { length: 255 }), // For dashboard login
   employeeCode: varchar("employee_code", { length: 20 }),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Product groups (for organizing products in bar view)
+export const groups = pgTable("groups", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  color: varchar("color", { length: 50 }).notNull().default("#6B7280"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Product categories
@@ -70,8 +81,7 @@ export const categories = pgTable("categories", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  color: varchar("color", { length: 7 }),
-  icon: varchar("icon", { length: 50 }),
+  color: varchar("color", { length: 50 }),
   sortOrder: integer("sort_order").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -84,6 +94,7 @@ export const products = pgTable("products", {
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   categoryId: uuid("category_id").references(() => categories.id),
+  groupId: uuid("group_id").references(() => groups.id),
   imageUrl: text("image_url"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -126,6 +137,29 @@ export const frostings = pgTable("frostings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Dry Toppings (escarchados secos - Miguelito, Tajín, etc.)
+export const dryToppings = pgTable("dry_toppings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Extras (shot, azúcar, etc.)
+export const extras = pgTable("extras", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Orders
 export const orders = pgTable("orders", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -161,6 +195,10 @@ export const orderItems = pgTable("order_items", {
   notes: text("notes"),
   frostingId: uuid("frosting_id").references(() => frostings.id),
   frostingName: varchar("frosting_name", { length: 255 }),
+  dryToppingId: uuid("dry_topping_id").references(() => dryToppings.id),
+  dryToppingName: varchar("dry_topping_name", { length: 255 }),
+  extraId: uuid("extra_id").references(() => extras.id),
+  extraName: varchar("extra_name", { length: 255 }),
 });
 
 // Order payments (for split payments)

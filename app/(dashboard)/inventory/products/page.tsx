@@ -47,13 +47,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, PencilSimple, Trash, MagnifyingGlass } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import type { Product, Category } from "@/lib/types";
+import type { Product, Category, Group } from "@/lib/types";
 
 interface ProductForm {
   name: string;
   description: string;
   price: string;
   categoryId: string;
+  groupId: string;
   imageUrl: string;
   active: boolean;
 }
@@ -63,6 +64,7 @@ const emptyForm: ProductForm = {
   description: "",
   price: "",
   categoryId: "",
+  groupId: "",
   imageUrl: "",
   active: true,
 };
@@ -70,6 +72,7 @@ const emptyForm: ProductForm = {
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -77,6 +80,7 @@ export default function ProductsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   // Category dialog
   const [catDialogOpen, setCatDialogOpen] = useState(false);
@@ -88,12 +92,14 @@ export default function ProductsPage() {
 
   async function fetchData() {
     try {
-      const [pRes, cRes] = await Promise.all([
+      const [productsRes, categoriesRes, groupsRes] = await Promise.all([
         fetch("/api/products"),
         fetch("/api/categories"),
+        fetch("/api/groups"),
       ]);
-      if (pRes.ok) setProducts(await pRes.json());
-      if (cRes.ok) setCategories(await cRes.json());
+      if (productsRes.ok) setProducts(await productsRes.json());
+      if (categoriesRes.ok) setCategories(await categoriesRes.json());
+      if (groupsRes.ok) setGroups(await groupsRes.json());
     } catch {
       toast.error("Error cargando datos");
     } finally {
@@ -113,11 +119,38 @@ export default function ProductsPage() {
       description: product.description || "",
       price: product.price,
       categoryId: product.categoryId || "",
+      groupId: product.groupId || "",
       imageUrl: product.imageUrl || "",
       active: product.active,
     });
     setEditingId(product.id);
     setDialogOpen(true);
+  }
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error();
+
+      const { imageUrl } = await res.json();
+      setForm({ ...form, imageUrl });
+      toast.success("Imagen subida");
+    } catch {
+      toast.error("Error subiendo imagen");
+    } finally {
+      setUploading(false);
+    }
   }
 
   async function handleSubmit() {
@@ -135,6 +168,7 @@ export default function ProductsPage() {
         body: JSON.stringify({
           ...form,
           categoryId: form.categoryId || null,
+          groupId: form.groupId || null,
         }),
       });
       if (!res.ok) throw new Error();
@@ -349,14 +383,57 @@ export default function ProductsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>Grupo (para /bar)</Label>
+                <Select
+                  value={form.groupId}
+                  onValueChange={(v) => setForm({ ...form, groupId: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sin grupo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((group) => (
+                      <SelectItem key={group.id} value={group.id}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 rounded" style={{ backgroundColor: group.color }} />
+                          {group.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
-              <Label>URL de Imagen</Label>
-              <Input
-                value={form.imageUrl}
-                onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-                placeholder="https://..."
-              />
+              <Label>Imagen del Producto</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  disabled={uploading}
+                  className="flex-1"
+                />
+                {uploading && <span className="text-sm text-muted-foreground">Subiendo...</span>}
+              </div>
+              {form.imageUrl && (
+                <div className="mt-2 relative w-32 h-32 border rounded overflow-hidden">
+                  <img
+                    src={form.imageUrl}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                  />
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="absolute top-1 right-1"
+                    onClick={() => setForm({ ...form, imageUrl: "" })}
+                  >
+                    <Trash className="size-3" />
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Switch

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ChartBar,
   ClipboardText,
@@ -38,7 +38,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { authClient } from "@/lib/auth/client";
+import { toast } from "sonner";
 
 const mainNavItems = [
   {
@@ -122,6 +122,18 @@ const settingsNavItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      toast.success('Sesión cerrada');
+      router.push('/login');
+      router.refresh();
+    } catch (error) {
+      toast.error('Error al cerrar sesión');
+    }
+  }
 
   const isActive = (url: string) => {
     if (url === "/dashboard") return pathname === "/dashboard";
@@ -252,11 +264,9 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <Link href="/auth/sign-out">
-                <SignOut className="size-4" />
-                <span>Cerrar sesión</span>
-              </Link>
+            <SidebarMenuButton onClick={handleLogout}>
+              <SignOut className="size-4" />
+              <span>Cerrar sesión</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
