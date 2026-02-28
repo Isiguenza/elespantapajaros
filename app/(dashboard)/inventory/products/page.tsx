@@ -49,6 +49,16 @@ import { Plus, PencilSimple, Trash, MagnifyingGlass } from "@phosphor-icons/reac
 import { toast } from "sonner";
 import type { Product, Category, Group } from "@/lib/types";
 
+interface Extra {
+  id: string;
+  name: string;
+  description: string | null;
+  price: string;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+}
+
 interface ProductForm {
   name: string;
   description: string;
@@ -73,11 +83,14 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [extras, setExtras] = useState<Extra[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [extraDialogOpen, setExtraDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingExtra, setEditingExtra] = useState<Extra | null>(null);
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -86,20 +99,28 @@ export default function ProductsPage() {
   const [catDialogOpen, setCatDialogOpen] = useState(false);
   const [catName, setCatName] = useState("");
 
+  // Extra form states
+  const [extraName, setExtraName] = useState("");
+  const [extraDescription, setExtraDescription] = useState("");
+  const [extraPrice, setExtraPrice] = useState("");
+  const [extraSortOrder, setExtraSortOrder] = useState(0);
+
   useEffect(() => {
     fetchData();
   }, []);
 
   async function fetchData() {
     try {
-      const [productsRes, categoriesRes, groupsRes] = await Promise.all([
+      const [productsRes, categoriesRes, groupsRes, extrasRes] = await Promise.all([
         fetch("/api/products"),
         fetch("/api/categories"),
         fetch("/api/groups"),
+        fetch("/api/extras"),
       ]);
       if (productsRes.ok) setProducts(await productsRes.json());
       if (categoriesRes.ok) setCategories(await categoriesRes.json());
       if (groupsRes.ok) setGroups(await groupsRes.json());
+      if (extrasRes.ok) setExtras(await extrasRes.json());
     } catch {
       toast.error("Error cargando datos");
     } finally {
@@ -214,6 +235,83 @@ export default function ProductsPage() {
     }
   }
 
+  // Extra functions
+  function openCreateExtraDialog() {
+    setEditingExtra(null);
+    setExtraName("");
+    setExtraDescription("");
+    setExtraPrice("");
+    setExtraSortOrder(extras.length);
+    setExtraDialogOpen(true);
+  }
+
+  function openEditExtraDialog(extra: Extra) {
+    setEditingExtra(extra);
+    setExtraName(extra.name);
+    setExtraDescription(extra.description || "");
+    setExtraPrice(extra.price);
+    setExtraSortOrder(extra.sortOrder);
+    setExtraDialogOpen(true);
+  }
+
+  async function handleExtraSubmit() {
+    if (!extraName || !extraPrice) {
+      toast.error("Nombre y precio son requeridos");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const url = editingExtra
+        ? `/api/extras/${editingExtra.id}`
+        : "/api/extras";
+      
+      const method = editingExtra ? "PATCH" : "POST";
+
+      const body = {
+        name: extraName,
+        description: extraDescription || null,
+        price: extraPrice,
+        sortOrder: extraSortOrder,
+      };
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Error");
+      }
+
+      toast.success(
+        editingExtra ? "Extra actualizado" : "Extra creado"
+      );
+      setExtraDialogOpen(false);
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.message || "Error al guardar extra");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDeleteExtra(id: string) {
+    if (!confirm("¿Estás seguro de desactivar este extra?")) return;
+
+    try {
+      const res = await fetch(`/api/extras/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast.success("Extra desactivado");
+      fetchData();
+    } catch (error) {
+      toast.error("Error al desactivar extra");
+    }
+  }
+
   const formatCurrency = (amount: string) =>
     new Intl.NumberFormat("es-MX", {
       style: "currency",
@@ -228,13 +326,16 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Productos</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Productos y Extras</h1>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setCatDialogOpen(true)}>
             <Plus className="mr-1 size-4" /> Categoría
           </Button>
           <Button onClick={openCreateDialog}>
             <Plus className="mr-1 size-4" /> Producto
+          </Button>
+          <Button onClick={openCreateExtraDialog} variant="outline">
+            <Plus className="mr-1 size-4" /> Extra
           </Button>
         </div>
       </div>
@@ -328,6 +429,78 @@ export default function ProductsPage() {
         </CardContent>
       </Card>
 
+      {/* Tabla de Extras */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Lista de Extras</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nombre</TableHead>
+                <TableHead>Descripción</TableHead>
+                <TableHead className="text-right">Precio</TableHead>
+                <TableHead>Orden</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead className="w-24" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {extras.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                    No hay extras registrados
+                  </TableCell>
+                </TableRow>
+              ) : (
+                extras.map((extra) => (
+                  <TableRow key={extra.id}>
+                    <TableCell className="font-medium">{extra.name}</TableCell>
+                    <TableCell className="max-w-md">
+                      {extra.description || (
+                        <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(extra.price)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{extra.sortOrder}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={extra.active ? "default" : "secondary"}>
+                        {extra.active ? "Activo" : "Inactivo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditExtraDialog(extra)}
+                        >
+                          <PencilSimple className="size-4" />
+                        </Button>
+                        {extra.active && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteExtra(extra.id)}
+                          >
+                            <Trash className="size-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
       {/* Product Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
@@ -378,27 +551,6 @@ export default function ProductsPage() {
                     {categories.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id}>
                         {cat.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Grupo (para /bar)</Label>
-                <Select
-                  value={form.groupId}
-                  onValueChange={(v) => setForm({ ...form, groupId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sin grupo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {groups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        <div className="flex items-center gap-2">
-                          <div className="w-4 h-4 rounded" style={{ backgroundColor: group.color }} />
-                          {group.name}
-                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -474,6 +626,72 @@ export default function ProductsPage() {
               Cancelar
             </Button>
             <Button onClick={handleCreateCategory}>Crear</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extra Dialog */}
+      <Dialog open={extraDialogOpen} onOpenChange={setExtraDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingExtra ? "Editar Extra" : "Nuevo Extra"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="extra-name">Nombre *</Label>
+              <Input
+                id="extra-name"
+                value={extraName}
+                onChange={(e) => setExtraName(e.target.value)}
+                placeholder="Crema batida, Caramelo, etc."
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="extra-description">Descripción</Label>
+              <Textarea
+                id="extra-description"
+                value={extraDescription}
+                onChange={(e) => setExtraDescription(e.target.value)}
+                placeholder="Descripción opcional del extra"
+                rows={3}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="extra-price">Precio *</Label>
+              <Input
+                id="extra-price"
+                type="number"
+                step="0.01"
+                value={extraPrice}
+                onChange={(e) => setExtraPrice(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="extra-sortOrder">Orden de visualización</Label>
+              <Input
+                id="extra-sortOrder"
+                type="number"
+                value={extraSortOrder}
+                onChange={(e) => setExtraSortOrder(parseInt(e.target.value) || 0)}
+                min={0}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExtraDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleExtraSubmit} disabled={submitting}>
+              {submitting ? "Guardando..." : "Guardar"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

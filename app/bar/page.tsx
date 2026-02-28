@@ -1,11 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Plus, Minus, Trash } from "@phosphor-icons/react";
+import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import type { Product, Category, CartItem, Frosting, DryTopping, Extra } from "@/lib/types";
+import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard } from "@/lib/types";
 
 export default function BarPage() {
   const router = useRouter();
@@ -19,6 +34,7 @@ export default function BarPage() {
   // Flujo de modificadores
   const [flowStep, setFlowStep] = useState<'products' | 'frostings' | 'toppings' | 'extras'>('products');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedFrosting, setSelectedFrosting] = useState<Frosting | null>(null);
   const [selectedTopping, setSelectedTopping] = useState<DryTopping | null>(null);
@@ -38,6 +54,19 @@ export default function BarPage() {
   const [checkingRegister, setCheckingRegister] = useState(true);
   const [authenticating, setAuthenticating] = useState(false);
   const [lastActivity, setLastActivity] = useState<number>(Date.now());
+  
+  // Loyalty card states
+  const [loyaltyCard, setLoyaltyCard] = useState<LoyaltyCard | null>(null);
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [manualStampDialogOpen, setManualStampDialogOpen] = useState(false);
+  const [qrCode, setQrCode] = useState("");
+  const [manualBarcodeInput, setManualBarcodeInput] = useState("");
+  const [loadingCard, setLoadingCard] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scanningRef = useRef<boolean>(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -329,6 +358,180 @@ export default function BarPage() {
     setCart(cart.filter((item) => item.productId !== productId));
   }
 
+  // Camera functions
+  async function startCamera() {
+    try {
+      // Check if getUserMedia is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error("Tu navegador no soporta acceso a la cámara. Usa el input manual.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        streamRef.current = stream;
+        setCameraActive(true);
+        
+        // Start scanning
+        scanQRCode();
+      }
+    } catch (error) {
+      console.error("Error accessing camera:", error);
+      toast.error("No se pudo acceder a la cámara. Verifica los permisos.");
+    }
+  }
+
+  function stopCamera() {
+    scanningRef.current = false;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  }
+
+  async function scanQRCode() {
+    if (!videoRef.current || !canvasRef.current) return;
+    
+    scanningRef.current = true;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    
+    if (!context) return;
+
+    // Load jsQR dynamically
+    if (!(window as any).jsQR) {
+      try {
+        await loadJsQR();
+      } catch (error) {
+        console.error("Error loading jsQR:", error);
+        toast.error("Error cargando detector de QR");
+        return;
+      }
+    }
+
+    const scan = () => {
+      if (!scanningRef.current || video.readyState !== video.HAVE_ENOUGH_DATA) {
+        if (scanningRef.current) {
+          requestAnimationFrame(scan);
+        }
+        return;
+      }
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      
+      const code = (window as any).jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+
+      if (code) {
+        setQrCode(code.data);
+        stopCamera();
+        toast.success("Código detectado");
+        scanningRef.current = false;
+        return;
+      }
+
+      if (scanningRef.current) {
+        requestAnimationFrame(scan);
+      }
+    };
+
+    requestAnimationFrame(scan);
+  }
+
+  async function loadJsQR() {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+
+  // Clean up camera on unmount or dialog close
+  useEffect(() => {
+    if (!qrDialogOpen && cameraActive) {
+      stopCamera();
+    }
+  }, [qrDialogOpen]);
+
+  // Loyalty card functions
+  async function handleQRSubmit() {
+    if (!qrCode.trim()) {
+      toast.error("Ingresa el código QR");
+      return;
+    }
+
+    setLoadingCard(true);
+    try {
+      const res = await fetch(`/api/loyalty-cards/barcode/${qrCode}`);
+      if (!res.ok) {
+        toast.error("Tarjeta no encontrada");
+        return;
+      }
+      
+      const card = await res.json();
+      setLoyaltyCard(card);
+      setQrDialogOpen(false);
+      setQrCode("");
+      toast.success(`Cliente: ${card.customerName}`);
+    } catch (error) {
+      toast.error("Error al buscar tarjeta");
+    } finally {
+      setLoadingCard(false);
+    }
+  }
+
+  async function handleManualStampSubmit() {
+    if (!manualBarcodeInput.trim()) {
+      toast.error("Ingresa el código de barras");
+      return;
+    }
+
+    setLoadingCard(true);
+    try {
+      const res = await fetch(`/api/loyalty-cards/barcode/${manualBarcodeInput}`);
+      if (!res.ok) {
+        toast.error("Tarjeta no encontrada");
+        return;
+      }
+      
+      const card = await res.json();
+      
+      // Agregar sello
+      const stampRes = await fetch(`/api/loyalty-cards/${card.id}/stamp`, {
+        method: "POST",
+      });
+
+      if (!stampRes.ok) {
+        toast.error("Error al agregar sello");
+        return;
+      }
+
+      const updated = await stampRes.json();
+      toast.success(`Sello agregado a ${card.customerName}`);
+      setManualStampDialogOpen(false);
+      setManualBarcodeInput("");
+    } catch (error) {
+      toast.error("Error al procesar sello");
+    } finally {
+      setLoadingCard(false);
+    }
+  }
+
   async function handleCheckout() {
     if (cart.length === 0) {
       toast.error("El carrito está vacío");
@@ -350,15 +553,33 @@ export default function BarPage() {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             notes: item.notes,
+            frostingId: item.frostingId,
+            dryToppingId: item.dryToppingId,
+            extraId: item.extraId,
           })),
           employeeId,
           paymentStatus: "pending",
+          loyaltyCardId: loyaltyCard?.id || null,
         }),
       });
 
       if (!res.ok) throw new Error();
       const order = await res.json();
+      
+      // Si hay tarjeta de lealtad, agregar sello
+      if (loyaltyCard) {
+        try {
+          await fetch(`/api/loyalty-cards/${loyaltyCard.id}/stamp`, {
+            method: "POST",
+          });
+          toast.success(`Sello agregado a ${loyaltyCard.customerName}`);
+        } catch (error) {
+          console.error("Error adding stamp:", error);
+        }
+      }
+      
       setCart([]);
+      setLoyaltyCard(null);
       toast.success("Orden creada");
       router.push(`/orders/pay/${order.id}`);
     } catch (error) {
@@ -595,8 +816,10 @@ export default function BarPage() {
     );
   }
 
-  // Filtrar productos por categoría seleccionada
-  const filteredProducts = selectedCategory
+  // Filtrar productos por categoría o búsqueda
+  const filteredProducts = searchQuery
+    ? products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : selectedCategory
     ? products.filter(p => p.categoryId === selectedCategory)
     : [];
 
@@ -608,8 +831,35 @@ export default function BarPage() {
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-semibold">Orden</h2>
-            <span className="font-bold">{formatCurrency(cartTotal)}</span>
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <DotsThree className="size-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setQrDialogOpen(true)}>
+                    <QrCode className="mr-2 size-4" />
+                    Leer QR
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setManualStampDialogOpen(true)}>
+                    <Stamp className="mr-2 size-4" />
+                    Asignar sellos manual
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <span className="font-bold">{formatCurrency(cartTotal)}</span>
+            </div>
           </div>
+          {loyaltyCard && (
+            <div className="mb-2 p-2 bg-primary/10 rounded text-sm">
+              <div className="font-medium">{loyaltyCard.customerName}</div>
+              <div className="text-xs text-muted-foreground">
+                {loyaltyCard.stamps} sellos • {loyaltyCard.rewardsAvailable} recompensas
+              </div>
+            </div>
+          )}
           <div className="text-sm text-muted-foreground">
             {cart.length} {cart.length === 1 ? 'producto' : 'productos'}
           </div>
@@ -630,6 +880,26 @@ export default function BarPage() {
                     <div className="text-xs text-muted-foreground">
                       {formatCurrency(item.unitPrice)} c/u
                     </div>
+                    {/* Resumen de modificadores */}
+                    {(item.frostingName || item.dryToppingName || item.extraName) && (
+                      <div className="mt-1 space-y-0.5">
+                        {item.frostingName && (
+                          <div className="text-xs text-muted-foreground">
+                            • Escarchado: {item.frostingName}
+                          </div>
+                        )}
+                        {item.dryToppingName && (
+                          <div className="text-xs text-muted-foreground">
+                            • Topping: {item.dryToppingName}
+                          </div>
+                        )}
+                        {item.extraName && (
+                          <div className="text-xs text-muted-foreground">
+                            • Extra: {item.extraName}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <Button
                     variant="ghost"
@@ -682,7 +952,21 @@ export default function BarPage() {
       </div>
 
       {/* COLUMNA DE CATEGORÍAS */}
-      <div className="w-48 border-r flex flex-col overflow-y-auto">
+      <div className="w-54 mx-6 flex flex-col p-4 gap-3 overflow-y-auto">
+        {/* Searchbar */}
+        <div className="relative mb-2">
+          <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar productos..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (e.target.value) setSelectedCategory(null);
+            }}
+            className="pl-9"
+          />
+        </div>
+
         {categories.map((category) => {
           const isSelected = selectedCategory === category.id;
           const categoryColor = category.color || '#6B7280';
@@ -690,18 +974,27 @@ export default function BarPage() {
           return (
             <button
               key={category.id}
-              onClick={() => setSelectedCategory(category.id)}
-              className={`p-4 text-left border-b transition-all ${
-                isSelected ? 'font-semibold' : 'hover:bg-muted/50'
+              onClick={() => {
+                setSelectedCategory(category.id);
+                setSearchQuery('');
+              }}
+              className={`px-5 py-8 text-center rounded-lg transition-all relative overflow-hidden ${
+                isSelected ? 'font-semibold' : 'hover:scale-105 bg-muted/30'
               }`}
               style={{
-                backgroundColor: isSelected ? `${categoryColor}20` : 'transparent',
-                borderWidth: isSelected ? '2px' : '0px',
-                borderColor: isSelected ? categoryColor : 'transparent',
+                backgroundColor: isSelected ? `${categoryColor}20` : undefined,
+                borderWidth: isSelected ? '2px' : '1px',
+                borderColor: isSelected ? categoryColor : '#5153566d',
                 color: isSelected ? categoryColor : 'inherit',
               }}
             >
               <div>{category.name}</div>
+              {!isSelected && (
+                <div 
+                  className="absolute bottom-0 left-0 right-0 h-1"
+                  style={{ backgroundColor: categoryColor }}
+                />
+              )}
             </button>
           );
         })}
@@ -751,7 +1044,7 @@ export default function BarPage() {
                 No hay productos en esta categoría
               </div>
             ) : (
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 {filteredProducts.map((product) => {
                   const category = categories.find(c => c.id === product.categoryId);
                   return (
@@ -759,7 +1052,7 @@ export default function BarPage() {
                       key={product.id}
                       onClick={() => handleProductClick(product)}
                       className="rounded-lg overflow-hidden relative hover:scale-105 transition-transform"
-                      style={{ minHeight: '140px' }}
+                      style={{ minHeight: '150px' }}
                     >
                       {product.imageUrl ? (
                         <div className="absolute inset-0">
@@ -773,14 +1066,22 @@ export default function BarPage() {
                       ) : (
                         <div className="absolute inset-0 bg-muted" />
                       )}
-                      <div className="relative z-10 p-4 flex flex-col justify-between h-full min-h-[140px]">
+                      <div className="relative z-10 p-4 flex flex-col h-full min-h-[140px]">
                         <div className="text-left">
                           <div className={`font-semibold mb-1 ${product.imageUrl ? 'text-white' : ''}`}>
                             {product.name}
                           </div>
+                          
                           <div className={`text-sm ${product.imageUrl ? 'text-white/90' : 'text-muted-foreground'}`}>
                             {formatCurrency(parseFloat(product.price))}
                           </div>
+                        </div>
+                        
+                        {/* Spacer dinámico */}
+                        <div className="flex-1 min-h-[12px]" />
+                        
+                        <div className={`font-light text-xs pt-3 text-left ${product.imageUrl ? 'text-gray-400 border-white/20' : 'text-muted-foreground border-border'}`}>
+                          {product.description ?? "N/A"}
                         </div>
                       </div>
                       <div 
@@ -872,6 +1173,101 @@ export default function BarPage() {
           </div>
         )}
       </div>
+
+      {/* Dialog Leer QR */}
+      <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leer QR de Tarjeta de Lealtad</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Camera Toggle Button */}
+            <div className="flex justify-center">
+              {!cameraActive ? (
+                <Button onClick={startCamera} variant="outline" className="w-full">
+                  <Camera className="mr-2 size-4" />
+                  Abrir Cámara
+                </Button>
+              ) : (
+                <Button onClick={stopCamera} variant="outline" className="w-full">
+                  <X className="mr-2 size-4" />
+                  Cerrar Cámara
+                </Button>
+              )}
+            </div>
+
+            {/* Video Preview */}
+            {cameraActive && (
+              <div className="relative rounded-lg overflow-hidden bg-black">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-64 object-cover"
+                />
+                <canvas ref={canvasRef} className="hidden" />
+                <div className="absolute inset-0 border-2 border-primary/50 pointer-events-none">
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border-2 border-primary rounded-lg" />
+                </div>
+              </div>
+            )}
+
+            {/* Manual Input */}
+            <div>
+              <Label htmlFor="qr-code">O ingresa el código manualmente</Label>
+              <Input
+                id="qr-code"
+                value={qrCode}
+                onChange={(e) => setQrCode(e.target.value)}
+                placeholder="Código de barras"
+                onKeyDown={(e) => e.key === "Enter" && handleQRSubmit()}
+                disabled={cameraActive}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { stopCamera(); setQrDialogOpen(false); }}>
+              Cancelar
+            </Button>
+            <Button onClick={handleQRSubmit} disabled={loadingCard || !qrCode.trim()}>
+              {loadingCard ? "Buscando..." : "Buscar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Asignar Sellos Manual */}
+      <Dialog open={manualStampDialogOpen} onOpenChange={setManualStampDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Asignar Sello Manual</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="manual-barcode">Código de Barras</Label>
+              <Input
+                id="manual-barcode"
+                value={manualBarcodeInput}
+                onChange={(e) => setManualBarcodeInput(e.target.value)}
+                placeholder="Escanea o ingresa el código"
+                onKeyDown={(e) => e.key === "Enter" && handleManualStampSubmit()}
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Para clientes que ya pagaron pero olvidaron escanear su tarjeta
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManualStampDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleManualStampSubmit} disabled={loadingCard}>
+              {loadingCard ? "Procesando..." : "Agregar Sello"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
