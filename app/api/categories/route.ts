@@ -18,7 +18,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, color, icon } = body;
+    const { name, description, color } = body;
 
     if (!name) {
       return NextResponse.json({ error: "Name required" }, { status: 400 });
@@ -30,7 +30,6 @@ export async function POST(request: NextRequest) {
         name,
         description: description || null,
         color: color || null,
-        icon: icon || null,
       })
       .returning();
 
