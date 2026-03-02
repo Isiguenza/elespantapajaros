@@ -81,7 +81,7 @@ export function SlideToConfirm({ onConfirm, disabled = false }: SlideToConfirmPr
         className="absolute left-0 top-0 bottom-0 bg-green-500/20 transition-all rounded-full"
         style={{
           width: containerRef.current
-            ? `${((position + (sliderRef.current?.offsetWidth + 16 || 0)) / containerRef.current.offsetWidth) * 100}%`
+            ? `${((position + ((sliderRef.current?.offsetWidth ?? 0) + 16)) / containerRef.current.offsetWidth) * 100}%`
             : "0%",
         }}
       />
