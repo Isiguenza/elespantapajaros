@@ -491,27 +491,66 @@ export default function BarPage() {
   // Camera functions
   async function startCamera() {
     try {
+      // Verificar contexto seguro (HTTPS)
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        toast.error("La cámara requiere HTTPS. Usa el input manual.");
+        return;
+      }
+
       // Check if getUserMedia is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         toast.error("Tu navegador no soporta acceso a la cámara. Usa el input manual.");
         return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
-      });
+      console.log("📷 Solicitando acceso a cámara...");
+
+      // Constraints más flexibles para iPad
+      const constraints = {
+        video: {
+          facingMode: { ideal: "environment" }, // ideal en lugar de exact
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log("✅ Stream obtenido:", stream.getVideoTracks());
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
-        setCameraActive(true);
         
-        // Start scanning
-        scanQRCode();
+        // Esperar a que el video esté listo y reproducirlo explícitamente
+        try {
+          await videoRef.current.play();
+          console.log("✅ Video reproduciendo");
+          setCameraActive(true);
+          
+          // Start scanning
+          scanQRCode();
+        } catch (playError) {
+          console.error("❌ Error al reproducir video:", playError);
+          toast.error("Error al iniciar video. Intenta de nuevo.");
+          // Limpiar stream si falla el play
+          stream.getTracks().forEach(track => track.stop());
+        }
       }
-    } catch (error) {
-      console.error("Error accessing camera:", error);
-      toast.error("No se pudo acceder a la cámara. Verifica los permisos.");
+    } catch (error: any) {
+      console.error("❌ Error accessing camera:", error);
+      
+      // Manejo específico de errores para iPad
+      if (error.name === 'NotAllowedError') {
+        toast.error("Permiso de cámara denegado. Por favor permite el acceso en Configuración.");
+      } else if (error.name === 'NotFoundError') {
+        toast.error("No se encontró cámara. Verifica que tu dispositivo tenga cámara.");
+      } else if (error.name === 'NotReadableError') {
+        toast.error("La cámara está en uso por otra aplicación. Ciérrala e intenta de nuevo.");
+      } else if (error.name === 'OverconstrainedError') {
+        toast.error("Configuración de cámara no soportada. Usando input manual.");
+      } else {
+        toast.error(`Error de cámara: ${error.message || 'Desconocido'}. Usa el input manual.`);
+      }
     }
   }
 
@@ -1820,6 +1859,7 @@ export default function BarPage() {
                   ref={videoRef}
                   autoPlay
                   playsInline
+                  muted
                   className="w-full h-64 object-cover"
                 />
                 <canvas ref={canvasRef} className="hidden" />
