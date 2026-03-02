@@ -537,6 +537,26 @@ export default function BarPage() {
         console.log("📹 Stream asignado al video. Dimensiones del track:", 
           stream.getVideoTracks()[0].getSettings());
         
+        // Protección contra cierre automático en iPad
+        const videoTrack = stream.getVideoTracks()[0];
+        videoTrack.addEventListener('ended', () => {
+          console.warn("⚠️ Video track terminado inesperadamente - posible cierre automático de iPad");
+          toast.error("La cámara se detuvo. Por favor, abre la cámara de nuevo.");
+          setCameraActive(false);
+        });
+        
+        // Prevenir pause automático en iPad
+        const handlePause = (e: Event) => {
+          console.warn("⚠️ Video pausado - reintentando reproducir...");
+          if (videoRef.current && cameraActive) {
+            videoRef.current.play().catch(err => {
+              console.error("❌ No se pudo reanudar video:", err);
+            });
+          }
+        };
+        
+        videoRef.current.addEventListener('pause', handlePause);
+        
         // Esperar a que el video cargue metadata
         const handleLoadedMetadata = () => {
           console.log("✅ Video metadata cargada. VideoWidth:", 
@@ -638,10 +658,12 @@ export default function BarPage() {
       });
 
       if (code) {
-        setQrCode(code.data);
-        stopCamera();
-        toast.success("Código detectado");
+        console.log("✅ QR detectado:", code.data);
         scanningRef.current = false;
+        stopCamera();
+        
+        // Buscar cliente automáticamente
+        handleQRCodeDetected(code.data);
         return;
       }
 
@@ -671,30 +693,50 @@ export default function BarPage() {
   }, [qrDialogOpen]);
 
   // Loyalty card functions
+  async function handleQRCodeDetected(code: string) {
+    if (!code.trim()) {
+      toast.error("Código QR inválido");
+      return;
+    }
+
+    setLoadingCard(true);
+    try {
+      console.log("🔍 Buscando cliente con código:", code);
+      const res = await fetch(`/api/loyalty/search?barcode=${encodeURIComponent(code)}`);
+      
+      if (!res.ok) {
+        toast.error("Tarjeta no encontrada");
+        setQrCode("");
+        return;
+      }
+      
+      const card = await res.json();
+      console.log("✅ Cliente encontrado:", card);
+      setLoyaltyCard(card);
+      setQrDialogOpen(false);
+      setQrCode("");
+      toast.success(`Cliente: ${card.customerName}`);
+      
+      // Si estamos en el paso de loyalty, avanzar automáticamente a pago
+      if (showingLoyaltyStep) {
+        skipLoyaltyAndProceedToPayment();
+      }
+    } catch (error) {
+      console.error("❌ Error buscando tarjeta:", error);
+      toast.error("Error al buscar tarjeta");
+      setQrCode("");
+    } finally {
+      setLoadingCard(false);
+    }
+  }
+
   async function handleQRSubmit() {
     if (!qrCode.trim()) {
       toast.error("Ingresa el código QR");
       return;
     }
 
-    setLoadingCard(true);
-    try {
-      const res = await fetch(`/api/loyalty-cards/barcode/${qrCode}`);
-      if (!res.ok) {
-        toast.error("Tarjeta no encontrada");
-        return;
-      }
-      
-      const card = await res.json();
-      setLoyaltyCard(card);
-      setQrDialogOpen(false);
-      setQrCode("");
-      toast.success(`Cliente: ${card.customerName}`);
-    } catch (error) {
-      toast.error("Error al buscar tarjeta");
-    } finally {
-      setLoadingCard(false);
-    }
+    await handleQRCodeDetected(qrCode);
   }
 
   async function handleManualStampSubmit() {
