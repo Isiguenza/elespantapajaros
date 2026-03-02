@@ -517,9 +517,22 @@ export default function BarPage() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log("✅ Stream obtenido:", stream.getVideoTracks());
       
+      // Guardar stream inmediatamente
+      streamRef.current = stream;
+      
+      // Activar cámara PRIMERO para que el video se monte en el DOM
+      setCameraActive(true);
+      
+      console.log("🔍 Verificando videoRef.current:", videoRef.current);
+      
+      // Esperar un pequeño delay para que el video se monte en el DOM
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log("🔍 Verificando videoRef.current después del delay:", videoRef.current);
+      
       if (videoRef.current) {
+        console.log("✅ videoRef.current existe, asignando stream...");
         videoRef.current.srcObject = stream;
-        streamRef.current = stream;
         
         console.log("📹 Stream asignado al video. Dimensiones del track:", 
           stream.getVideoTracks()[0].getSettings());
@@ -538,7 +551,6 @@ export default function BarPage() {
         try {
           await videoRef.current.play();
           console.log("✅ Video reproduciendo");
-          setCameraActive(true);
           
           // Start scanning después de un pequeño delay para asegurar que el video esté listo
           setTimeout(() => scanQRCode(), 100);
@@ -547,7 +559,15 @@ export default function BarPage() {
           toast.error("Error al iniciar video. Intenta de nuevo.");
           // Limpiar stream si falla el play
           stream.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+          setCameraActive(false);
         }
+      } else {
+        console.error("❌ videoRef.current es NULL después del delay!");
+        toast.error("Error: elemento de video no disponible");
+        stream.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+        setCameraActive(false);
       }
     } catch (error: any) {
       console.error("❌ Error accessing camera:", error);
@@ -1866,19 +1886,35 @@ export default function BarPage() {
             </div>
 
             {/* Video Preview */}
-            {cameraActive && (
-              <div className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: '256px' }}>
+            {cameraActive ? (
+              <div className="relative rounded-lg overflow-hidden bg-black border-2 border-green-500" style={{ minHeight: '256px' }}>
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
                   className="w-full h-64 object-cover"
-                  style={{ minHeight: '256px' }}
+                  style={{ minHeight: '256px', display: 'block' }}
+                  onLoadedMetadata={() => console.log("🎥 Video onLoadedMetadata disparado")}
+                  onPlaying={() => console.log("▶️ Video onPlaying disparado")}
+                  onError={(e) => console.error("❌ Video onError:", e)}
                 />
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="absolute inset-0 border-2 border-primary/50 pointer-events-none">
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border-2 border-primary rounded-lg" />
+                </div>
+                {/* Indicador de cámara activa */}
+                <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">
+                  🔴 EN VIVO
+                </div>
+              </div>
+            ) : (
+              <div className="relative rounded-lg overflow-hidden bg-muted border-2 border-dashed" style={{ minHeight: '256px' }}>
+                <div className="flex items-center justify-center h-64 text-muted-foreground">
+                  <div className="text-center">
+                    <Camera className="mx-auto mb-2 size-12 opacity-50" />
+                    <p>Presiona "Abrir Cámara" para escanear</p>
+                  </div>
                 </div>
               </div>
             )}
