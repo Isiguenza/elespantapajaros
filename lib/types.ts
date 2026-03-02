@@ -82,6 +82,36 @@ export interface Extra {
   updatedAt: Date;
 }
 
+export interface ModifierStep {
+  id: string;
+  categoryId: string;
+  stepType: "frosting" | "topping" | "extra" | "custom";
+  stepName: string;
+  sortOrder: number;
+  isRequired: boolean;
+  allowMultiple: boolean;
+  active: boolean;
+  createdAt: Date;
+  options?: ModifierOption[];
+}
+
+export interface ModifierOption {
+  id: string;
+  stepId: string;
+  name: string;
+  description: string | null;
+  price: string;
+  sortOrder: number;
+  active: boolean;
+  createdAt: Date;
+}
+
+export interface CategoryFlow {
+  categoryId: string;
+  useDefaultFlow: boolean;
+  steps: ModifierStep[];
+}
+
 export interface Order {
   id: string;
   orderNumber: number;
@@ -118,6 +148,7 @@ export interface OrderItem {
   dryToppingName: string | null;
   extraId: string | null;
   extraName: string | null;
+  customModifiers: string | null;
   frosting?: Frosting | null;
   dryTopping?: DryTopping | null;
   extra?: Extra | null;
@@ -147,6 +178,7 @@ export interface CartItem {
   dryToppingName?: string | null | undefined;
   extraId?: string | null | undefined;
   extraName?: string | null | undefined;
+  customModifiers?: string | null;
 }
 
 export interface CashRegister {

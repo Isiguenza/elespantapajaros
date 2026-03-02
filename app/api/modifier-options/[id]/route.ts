@@ -1,37 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { categories } from "@/lib/db/schema";
+import { modifierOptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    
-    const [category] = await db
-      .select()
-      .from(categories)
-      .where(eq(categories.id, id))
-      .limit(1);
-
-    if (!category) {
-      return NextResponse.json(
-        { error: "Category not found" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json(category);
-  } catch (error) {
-    console.error("Error fetching category:", error);
-    return NextResponse.json(
-      { error: "Error fetching category" },
-      { status: 500 }
-    );
-  }
-}
 
 export async function PUT(
   request: NextRequest,
@@ -40,33 +10,33 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, description, color, sortOrder, active } = body;
+    const { name, description, price, sortOrder, active } = body;
 
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
-    if (color !== undefined) updateData.color = color;
+    if (price !== undefined) updateData.price = price;
     if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
     if (active !== undefined) updateData.active = active;
 
     const [updated] = await db
-      .update(categories)
+      .update(modifierOptions)
       .set(updateData)
-      .where(eq(categories.id, id))
+      .where(eq(modifierOptions.id, id))
       .returning();
 
     if (!updated) {
       return NextResponse.json(
-        { error: "Category not found" },
+        { error: "Modifier option not found" },
         { status: 404 }
       );
     }
 
     return NextResponse.json(updated);
   } catch (error) {
-    console.error("Error updating category:", error);
+    console.error("Error updating modifier option:", error);
     return NextResponse.json(
-      { error: "Error updating category" },
+      { error: "Error updating modifier option" },
       { status: 500 }
     );
   }
@@ -78,23 +48,24 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+
     const [deleted] = await db
-      .delete(categories)
-      .where(eq(categories.id, id))
+      .delete(modifierOptions)
+      .where(eq(modifierOptions.id, id))
       .returning();
 
     if (!deleted) {
       return NextResponse.json(
-        { error: "Category not found" },
+        { error: "Modifier option not found" },
         { status: 404 }
       );
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting category:", error);
+    console.error("Error deleting modifier option:", error);
     return NextResponse.json(
-      { error: "Error deleting category" },
+      { error: "Error deleting modifier option" },
       { status: 500 }
     );
   }

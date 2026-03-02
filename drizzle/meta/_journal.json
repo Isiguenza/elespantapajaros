@@ -15,6 +15,13 @@
       "when": 1772254410597,
       "tag": "0001_chubby_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772409241642,
+      "tag": "0002_bright_maddog",
+      "breakpoints": true
     }
   ]
 }

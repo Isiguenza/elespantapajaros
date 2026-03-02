@@ -21,7 +21,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash } from "@phosphor-icons/react";
+import { Plus, Pencil, Trash, FlowArrow } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
 import type { Category } from "@/lib/types";
 
 const PRESET_COLORS = [
@@ -38,6 +39,7 @@ const PRESET_COLORS = [
 ];
 
 export default function CategoriesPage() {
+  const router = useRouter();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -266,6 +268,14 @@ export default function CategoriesPage() {
                   <TableCell>{category.sortOrder}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => router.push(`/inventory/categories/${category.id}/flow`)}
+                        title="Configurar flujo de modificadores"
+                      >
+                        <FlowArrow className="size-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"

@@ -20,7 +20,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X } from "@phosphor-icons/react";
 import { toast } from "sonner";
-import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard } from "@/lib/types";
+import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption } from "@/lib/types";
 
 export default function BarPage() {
   const router = useRouter();
@@ -31,11 +31,15 @@ export default function BarPage() {
   const [toppings, setToppings] = useState<DryTopping[]>([]);
   const [extras, setExtras] = useState<Extra[]>([]);
   
-  // Flujo de modificadores
-  const [flowStep, setFlowStep] = useState<'products' | 'frostings' | 'toppings' | 'extras'>('products');
+  // Flujo de modificadores dinámico
+  const [categoryFlow, setCategoryFlow] = useState<CategoryFlow | null>(null);
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1); // -1 = productos
+  const [stepSelections, setStepSelections] = useState<Record<string, any>>({});
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  
+  // Estados legacy para compatibilidad (se usarán según el tipo de paso)
   const [selectedFrosting, setSelectedFrosting] = useState<Frosting | null>(null);
   const [selectedTopping, setSelectedTopping] = useState<DryTopping | null>(null);
   const [selectedExtras, setSelectedExtras] = useState<Extra[]>([]);
@@ -93,6 +97,12 @@ export default function BarPage() {
 
     return () => clearInterval(checkInactivity);
   }, [employeeId, lastActivity]);
+
+  useEffect(() => {
+    if (selectedCategory) {
+      loadCategoryFlow(selectedCategory);
+    }
+  }, [selectedCategory]);
 
   useEffect(() => {
     const updateActivity = () => setLastActivity(Date.now());
@@ -271,40 +281,118 @@ export default function BarPage() {
     }
   }
 
-  // Iniciar flujo de modificadores
-  function handleProductClick(product: Product) {
-    setSelectedProduct(product);
-    setSelectedFrosting(null);
-    setSelectedTopping(null);
-    setSelectedExtras([]);
-    setFlowStep('frostings');
-  }
-
-  function handleFrostingSelect(frosting: Frosting | null) {
-    setSelectedFrosting(frosting);
-    setFlowStep('toppings');
-  }
-
-  function handleToppingSelect(topping: DryTopping | null) {
-    setSelectedTopping(topping);
-    setFlowStep('extras');
-  }
-
-  function toggleExtra(extra: Extra) {
-    if (selectedExtras.find(e => e.id === extra.id)) {
-      setSelectedExtras(selectedExtras.filter(e => e.id !== extra.id));
-    } else {
-      setSelectedExtras([...selectedExtras, extra]);
+  // Cargar flujo de categoría
+  async function loadCategoryFlow(categoryId: string) {
+    try {
+      const res = await fetch(`/api/categories/${categoryId}/flow`);
+      if (res.ok) {
+        const flow = await res.json();
+        setCategoryFlow(flow);
+      }
+    } catch (error) {
+      console.error("Error loading category flow:", error);
+      // Usar flujo predeterminado en caso de error
+      setCategoryFlow({
+        categoryId,
+        useDefaultFlow: true,
+        steps: [],
+      });
     }
   }
 
-  function handleConfirmExtras() {
-    if (!selectedProduct) return;
+  // Iniciar flujo de modificadores
+  function handleProductClick(product: Product) {
+    setSelectedProduct(product);
+    setStepSelections({});
+    setSelectedFrosting(null);
+    setSelectedTopping(null);
+    setSelectedExtras([]);
+    
+    // Iniciar en el primer paso del flujo
+    if (categoryFlow && categoryFlow.steps.length > 0) {
+      setCurrentStepIndex(0);
+    } else {
+      // Sin flujo configurado, ir directo al carrito
+      addToCartDirectly(product);
+    }
+  }
+
+  function addToCartDirectly(product: Product) {
+    const newItem: CartItem = {
+      productId: product.id,
+      productName: product.name,
+      unitPrice: parseFloat(product.price),
+      quantity: 1,
+      notes: "",
+      frostingId: undefined,
+      frostingName: undefined,
+      dryToppingId: undefined,
+      dryToppingName: undefined,
+      extraId: undefined,
+      extraName: undefined,
+      customModifiers: null,
+    };
+    setCart([...cart, newItem]);
+    toast.success(`${product.name} agregado`);
+  }
+
+  function handleStepSelection(selection: any) {
+    if (!categoryFlow || currentStepIndex < 0) return;
+    
+    const currentStep = categoryFlow.steps[currentStepIndex];
+    
+    // Guardar selección del paso actual
+    setStepSelections({
+      ...stepSelections,
+      [currentStep.id]: selection,
+    });
+    
+    // Avanzar al siguiente paso o finalizar
+    if (currentStepIndex < categoryFlow.steps.length - 1) {
+      setCurrentStepIndex(currentStepIndex + 1);
+    } else {
+      finishFlowAndAddToCart();
+    }
+  }
+
+  function finishFlowAndAddToCart() {
+    if (!selectedProduct || !categoryFlow) return;
+
+    // Calcular precio total con modificadores custom
+    let totalPrice = parseFloat(selectedProduct.price);
+    const customModifiersData: Record<string, any> = {};
+
+    categoryFlow.steps.forEach((step) => {
+      const selection = stepSelections[step.id];
+      if (!selection) return;
+
+      if (step.stepType === "custom" && step.options) {
+        // Para pasos custom, guardar en customModifiers y sumar precio
+        const selectedOptions = Array.isArray(selection) ? selection : [selection];
+        customModifiersData[step.id] = {
+          stepName: step.stepName,
+          options: selectedOptions.map((opt: ModifierOption) => {
+            totalPrice += parseFloat(opt.price);
+            return {
+              id: opt.id,
+              name: opt.name,
+              price: opt.price,
+            };
+          }),
+        };
+      } else if (step.stepType === "extra") {
+        // Para extras, sumar precio
+        const selectedExtras = Array.isArray(selection) ? selection : [selection];
+        selectedExtras.forEach((extra: Extra) => {
+          totalPrice += parseFloat(extra.price);
+        });
+      }
+    });
 
     const newItem: CartItem = {
       productId: selectedProduct.id,
       productName: selectedProduct.name,
-      unitPrice: parseFloat(selectedProduct.price),
+      unitPrice: totalPrice,
       quantity: 1,
       notes: "",
       frostingId: selectedFrosting?.id,
@@ -313,6 +401,7 @@ export default function BarPage() {
       dryToppingName: selectedTopping?.name,
       extraId: selectedExtras.length > 0 ? selectedExtras[0].id : undefined,
       extraName: selectedExtras.length > 0 ? selectedExtras[0].name : undefined,
+      customModifiers: Object.keys(customModifiersData).length > 0 ? JSON.stringify(customModifiersData) : null,
     };
 
     setCart([...cart, newItem]);
@@ -321,20 +410,27 @@ export default function BarPage() {
   }
 
   function resetFlow() {
-    setFlowStep('products');
+    setCurrentStepIndex(-1);
     setSelectedProduct(null);
+    setStepSelections({});
     setSelectedFrosting(null);
     setSelectedTopping(null);
     setSelectedExtras([]);
   }
 
   function handleBackInFlow() {
-    if (flowStep === 'frostings') {
+    if (currentStepIndex === 0) {
       resetFlow();
-    } else if (flowStep === 'toppings') {
-      setFlowStep('frostings');
-    } else if (flowStep === 'extras') {
-      setFlowStep('toppings');
+    } else if (currentStepIndex > 0) {
+      setCurrentStepIndex(currentStepIndex - 1);
+    }
+  }
+
+  function toggleExtra(extra: Extra) {
+    if (selectedExtras.find(e => e.id === extra.id)) {
+      setSelectedExtras(selectedExtras.filter(e => e.id !== extra.id));
+    } else {
+      setSelectedExtras([...selectedExtras, extra]);
     }
   }
 
@@ -1005,27 +1101,15 @@ export default function BarPage() {
         {/* Header con título y botón back */}
         <div className="p-4 border-b flex items-center justify-between">
           <div>
-            {flowStep === 'products' && <h2 className="text-2xl font-bold">Selecciona un producto</h2>}
-            {flowStep === 'frostings' && (
+            {currentStepIndex === -1 && <h2 className="text-2xl font-bold">Selecciona un producto</h2>}
+            {currentStepIndex >= 0 && categoryFlow && categoryFlow.steps[currentStepIndex] && (
               <div>
-                <h2 className="text-2xl font-bold">Escarchado</h2>
-                <p className="text-sm text-muted-foreground">{selectedProduct?.name}</p>
-              </div>
-            )}
-            {flowStep === 'toppings' && (
-              <div>
-                <h2 className="text-2xl font-bold">Topping Seco</h2>
-                <p className="text-sm text-muted-foreground">{selectedProduct?.name}</p>
-              </div>
-            )}
-            {flowStep === 'extras' && (
-              <div>
-                <h2 className="text-2xl font-bold">Extras</h2>
+                <h2 className="text-2xl font-bold">{categoryFlow.steps[currentStepIndex].stepName}</h2>
                 <p className="text-sm text-muted-foreground">{selectedProduct?.name}</p>
               </div>
             )}
           </div>
-          {flowStep !== 'products' && (
+          {currentStepIndex >= 0 && (
             <Button variant="outline" onClick={handleBackInFlow}>
               ← Atrás
             </Button>
@@ -1033,7 +1117,7 @@ export default function BarPage() {
         </div>
 
         {/* VISTA: PRODUCTOS */}
-        {flowStep === 'products' && (
+        {currentStepIndex === -1 && (
           <div className="flex-1 overflow-auto p-6">
             {!selectedCategory ? (
               <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -1096,82 +1180,129 @@ export default function BarPage() {
           </div>
         )}
 
-        {/* VISTA: ESCARCHADOS */}
-        {flowStep === 'frostings' && (
-          <div className="flex-1 p-8 overflow-auto">
-            <div className="grid grid-cols-4 gap-4 max-w-6xl">
-              <button
-                onClick={() => handleFrostingSelect(null)}
-                className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
-              >
-                Sin escarchado
-              </button>
-              {frostings.map((frosting) => (
-                <button
-                  key={frosting.id}
-                  onClick={() => handleFrostingSelect(frosting)}
-                  className="h-32 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
-                >
-                  {frosting.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* VISTA: TOPPINGS */}
-        {flowStep === 'toppings' && (
-          <div className="flex-1 p-8 overflow-auto">
-            <div className="grid grid-cols-4 gap-4 max-w-6xl">
-              <button
-                onClick={() => handleToppingSelect(null)}
-                className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
-              >
-                Sin topping
-              </button>
-              {toppings.map((topping) => (
-                <button
-                  key={topping.id}
-                  onClick={() => handleToppingSelect(topping)}
-                  className="h-32 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
-                >
-                  {topping.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* VISTA: EXTRAS */}
-        {flowStep === 'extras' && (
-          <div className="flex-1 flex flex-col p-8 overflow-auto">
-            <div className="grid grid-cols-4 gap-4 max-w-6xl mb-6">
-              {extras.map((extra) => (
-                <button
-                  key={extra.id}
-                  onClick={() => toggleExtra(extra)}
-                  className={`h-32 rounded-lg flex flex-col items-center justify-center font-semibold transition-colors border-2 ${
-                    selectedExtras.find(e => e.id === extra.id)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted hover:bg-muted/80 border-transparent hover:border-primary'
-                  }`}
-                >
-                  <div>{extra.name}</div>
-                  <div className="text-sm opacity-80">{formatCurrency(parseFloat(extra.price))}</div>
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-4 max-w-6xl">
-              <Button
-                onClick={handleConfirmExtras}
-                size="lg"
-                className="flex-1"
-              >
-                Agregar al carrito
-              </Button>
-            </div>
-          </div>
-        )}
+        {/* VISTAS DINÁMICAS DE PASOS */}
+        {currentStepIndex >= 0 && categoryFlow && categoryFlow.steps[currentStepIndex] && (() => {
+          const currentStep = categoryFlow.steps[currentStepIndex];
+          
+          // Renderizar según tipo de paso
+          if (currentStep.stepType === "frosting") {
+            return (
+              <div className="flex-1 p-8 overflow-auto">
+                <div className="grid grid-cols-4 gap-4 max-w-6xl">
+                  {!currentStep.isRequired && (
+                    <button
+                      onClick={() => handleStepSelection(null)}
+                      className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
+                    >
+                      Sin escarchado
+                    </button>
+                  )}
+                  {frostings.map((frosting) => (
+                    <button
+                      key={frosting.id}
+                      onClick={() => {
+                        setSelectedFrosting(frosting);
+                        handleStepSelection(frosting);
+                      }}
+                      className="h-32 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
+                    >
+                      {frosting.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          } else if (currentStep.stepType === "topping") {
+            return (
+              <div className="flex-1 p-8 overflow-auto">
+                <div className="grid grid-cols-4 gap-4 max-w-6xl">
+                  {!currentStep.isRequired && (
+                    <button
+                      onClick={() => handleStepSelection(null)}
+                      className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
+                    >
+                      Sin topping
+                    </button>
+                  )}
+                  {toppings.map((topping) => (
+                    <button
+                      key={topping.id}
+                      onClick={() => {
+                        setSelectedTopping(topping);
+                        handleStepSelection(topping);
+                      }}
+                      className="h-32 rounded-lg bg-primary/10 hover:bg-primary/20 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
+                    >
+                      {topping.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          } else if (currentStep.stepType === "extra") {
+            return (
+              <div className="flex-1 flex flex-col p-8 overflow-auto">
+                <div className="grid grid-cols-4 gap-4 max-w-6xl mb-6">
+                  {extras.map((extra) => (
+                    <button
+                      key={extra.id}
+                      onClick={() => toggleExtra(extra)}
+                      className={`h-32 rounded-lg flex flex-col items-center justify-center font-semibold transition-colors border-2 ${
+                        selectedExtras.find(e => e.id === extra.id)
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-muted hover:bg-muted/80 border-transparent hover:border-primary'
+                      }`}
+                    >
+                      <div>{extra.name}</div>
+                      <div className="text-sm opacity-80">{formatCurrency(parseFloat(extra.price))}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-4 max-w-6xl">
+                  <Button
+                    onClick={() => handleStepSelection(selectedExtras)}
+                    size="lg"
+                    className="flex-1"
+                  >
+                    {currentStepIndex < categoryFlow.steps.length - 1 ? "Continuar" : "Agregar al carrito"}
+                  </Button>
+                </div>
+              </div>
+            );
+          } else if (currentStep.stepType === "custom" && currentStep.options) {
+            // Renderizar opciones personalizadas
+            return (
+              <div className="flex-1 p-8 overflow-auto">
+                <div className="grid grid-cols-4 gap-4 max-w-6xl">
+                  {!currentStep.isRequired && (
+                    <button
+                      onClick={() => handleStepSelection(null)}
+                      className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
+                    >
+                      Ninguno
+                    </button>
+                  )}
+                  {currentStep.options.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => handleStepSelection(option)}
+                      className="h-32 rounded-lg bg-primary/10 hover:bg-primary/20 flex flex-col items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
+                    >
+                      <div>{option.name}</div>
+                      {parseFloat(option.price) > 0 && (
+                        <div className="text-sm opacity-80 mt-1">
+                          +{formatCurrency(parseFloat(option.price))}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          
+          return null;
+        })()}
       </div>
 
       {/* Dialog Leer QR */}

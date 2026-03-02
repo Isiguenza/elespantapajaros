@@ -160,6 +160,42 @@ export const extras = pgTable("extras", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Modifier flow steps for categories
+export const modifierStepTypeEnum = pgEnum("modifier_step_type", [
+  "frosting",
+  "topping",
+  "extra",
+  "custom",
+]);
+
+export const modifierSteps = pgTable("modifier_steps", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  categoryId: uuid("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+  stepType: modifierStepTypeEnum("step_type").notNull(),
+  stepName: varchar("step_name", { length: 255 }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isRequired: boolean("is_required").notNull().default(false),
+  allowMultiple: boolean("allow_multiple").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Options for custom modifier steps
+export const modifierOptions = pgTable("modifier_options", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  stepId: uuid("step_id")
+    .notNull()
+    .references(() => modifierSteps.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Orders
 export const orders = pgTable("orders", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -199,6 +235,7 @@ export const orderItems = pgTable("order_items", {
   dryToppingName: varchar("dry_topping_name", { length: 255 }),
   extraId: uuid("extra_id").references(() => extras.id),
   extraName: varchar("extra_name", { length: 255 }),
+  customModifiers: text("custom_modifiers"), // JSON string with custom modifier selections
 });
 
 // Order payments (for split payments)
@@ -333,6 +370,22 @@ export const mercadopagoDevices = pgTable("mercadopago_devices", {
 // Relations
 export const categoriesRelations = relations(categories, ({ many }) => ({
   products: many(products),
+  modifierSteps: many(modifierSteps),
+}));
+
+export const modifierStepsRelations = relations(modifierSteps, ({ one, many }) => ({
+  category: one(categories, {
+    fields: [modifierSteps.categoryId],
+    references: [categories.id],
+  }),
+  options: many(modifierOptions),
+}));
+
+export const modifierOptionsRelations = relations(modifierOptions, ({ one }) => ({
+  step: one(modifierSteps, {
+    fields: [modifierOptions.stepId],
+    references: [modifierSteps.id],
+  }),
 }));
 
 export const productsRelations = relations(products, ({ one, many }) => ({
