@@ -404,8 +404,27 @@ export default function BarPage() {
       customModifiers: Object.keys(customModifiersData).length > 0 ? JSON.stringify(customModifiersData) : null,
     };
 
-    setCart([...cart, newItem]);
-    toast.success(`${selectedProduct.name} agregado`);
+    // Buscar si ya existe un item idéntico en el carrito
+    const existingItemIndex = cart.findIndex((item) => 
+      item.productId === newItem.productId &&
+      item.frostingId === newItem.frostingId &&
+      item.dryToppingId === newItem.dryToppingId &&
+      item.extraId === newItem.extraId &&
+      item.customModifiers === newItem.customModifiers
+    );
+
+    if (existingItemIndex >= 0) {
+      // Si existe, incrementar cantidad
+      const updatedCart = [...cart];
+      updatedCart[existingItemIndex].quantity += 1;
+      setCart(updatedCart);
+      toast.success(`${selectedProduct.name} agregado (${updatedCart[existingItemIndex].quantity})`);
+    } else {
+      // Si no existe, agregar nuevo item
+      setCart([...cart, newItem]);
+      toast.success(`${selectedProduct.name} agregado`);
+    }
+    
     resetFlow();
   }
 
@@ -434,24 +453,22 @@ export default function BarPage() {
     }
   }
 
-  function updateQuantity(productId: string, delta: number) {
-    const item = cart.find((i) => i.productId === productId);
+  function updateQuantity(index: number, delta: number) {
+    const item = cart[index];
     if (!item) return;
 
     const newQty = item.quantity + delta;
     if (newQty <= 0) {
-      removeFromCart(productId);
+      removeFromCart(index);
     } else {
-      setCart(
-        cart.map((i) =>
-          i.productId === productId ? { ...i, quantity: newQty } : i
-        )
-      );
+      const updatedCart = [...cart];
+      updatedCart[index] = { ...updatedCart[index], quantity: newQty };
+      setCart(updatedCart);
     }
   }
 
-  function removeFromCart(productId: string) {
-    setCart(cart.filter((item) => item.productId !== productId));
+  function removeFromCart(index: number) {
+    setCart(cart.filter((_, i) => i !== index));
   }
 
   // Camera functions
@@ -968,8 +985,8 @@ export default function BarPage() {
               Carrito vacío
             </div>
           ) : (
-            cart.map((item) => (
-              <div key={item.productId} className="bg-muted rounded-lg p-3">
+            cart.map((item, index) => (
+              <div key={index} className="bg-muted rounded-lg p-3">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
                     <div className="font-medium text-sm">{item.productName}</div>
@@ -977,7 +994,7 @@ export default function BarPage() {
                       {formatCurrency(item.unitPrice)} c/u
                     </div>
                     {/* Resumen de modificadores */}
-                    {(item.frostingName || item.dryToppingName || item.extraName) && (
+                    {(item.frostingName || item.dryToppingName || item.extraName || item.customModifiers) && (
                       <div className="mt-1 space-y-0.5">
                         {item.frostingName && (
                           <div className="text-xs text-muted-foreground">
@@ -994,13 +1011,25 @@ export default function BarPage() {
                             • Extra: {item.extraName}
                           </div>
                         )}
+                        {item.customModifiers && (() => {
+                          try {
+                            const modifiers = JSON.parse(item.customModifiers);
+                            return Object.values(modifiers).map((mod: any, idx: number) => (
+                              <div key={idx} className="text-xs text-muted-foreground">
+                                • {mod.stepName}: {mod.options.map((opt: any) => opt.name).join(', ')}
+                              </div>
+                            ));
+                          } catch (e) {
+                            return null;
+                          }
+                        })()}
                       </div>
                     )}
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => removeFromCart(item.productId)}
+                    onClick={() => removeFromCart(index)}
                   >
                     <Trash className="size-4 text-destructive" />
                   </Button>
@@ -1010,7 +1039,7 @@ export default function BarPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => updateQuantity(item.productId, -1)}
+                      onClick={() => updateQuantity(index, -1)}
                       className="h-8 w-8 p-0"
                     >
                       <Minus className="size-3" />
@@ -1019,7 +1048,7 @@ export default function BarPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => updateQuantity(item.productId, 1)}
+                      onClick={() => updateQuantity(index, 1)}
                       className="h-8 w-8 p-0"
                     >
                       <Plus className="size-3" />
@@ -1189,12 +1218,12 @@ export default function BarPage() {
             return (
               <div className="flex-1 p-8 overflow-auto">
                 <div className="grid grid-cols-4 gap-4 max-w-6xl">
-                  {!currentStep.isRequired && (
+                  {currentStep.includeNoneOption && (
                     <button
                       onClick={() => handleStepSelection(null)}
                       className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
                     >
-                      Sin escarchado
+                      Sin {currentStep.stepName.toLowerCase()}
                     </button>
                   )}
                   {frostings.map((frosting) => (
@@ -1216,12 +1245,12 @@ export default function BarPage() {
             return (
               <div className="flex-1 p-8 overflow-auto">
                 <div className="grid grid-cols-4 gap-4 max-w-6xl">
-                  {!currentStep.isRequired && (
+                  {currentStep.includeNoneOption && (
                     <button
                       onClick={() => handleStepSelection(null)}
                       className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
                     >
-                      Sin topping
+                      Sin {currentStep.stepName.toLowerCase()}
                     </button>
                   )}
                   {toppings.map((topping) => (
@@ -1274,12 +1303,12 @@ export default function BarPage() {
             return (
               <div className="flex-1 p-8 overflow-auto">
                 <div className="grid grid-cols-4 gap-4 max-w-6xl">
-                  {!currentStep.isRequired && (
+                  {currentStep.includeNoneOption && (
                     <button
                       onClick={() => handleStepSelection(null)}
                       className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
                     >
-                      Ninguno
+                      Sin {currentStep.stepName.toLowerCase()}
                     </button>
                   )}
                   {currentStep.options.map((option) => (

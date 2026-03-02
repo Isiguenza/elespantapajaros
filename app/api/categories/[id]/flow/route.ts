@@ -104,6 +104,7 @@ export async function POST(
           sortOrder: step.sortOrder,
           isRequired: step.isRequired,
           allowMultiple: step.allowMultiple,
+          includeNoneOption: step.includeNoneOption !== undefined ? step.includeNoneOption : true,
           active: step.active !== undefined ? step.active : true,
         })
         .returning();

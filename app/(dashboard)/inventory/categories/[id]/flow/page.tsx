@@ -40,6 +40,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
     stepName: "",
     isRequired: false,
     allowMultiple: false,
+    includeNoneOption: true,
     options: [] as Array<{ name: string; price: string; sortOrder: number }>,
   });
 
@@ -107,6 +108,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
           sortOrder: 1,
           isRequired: false,
           allowMultiple: false,
+          includeNoneOption: true,
           active: true,
           createdAt: new Date(),
           options: [],
@@ -119,6 +121,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
           sortOrder: 2,
           isRequired: false,
           allowMultiple: false,
+          includeNoneOption: true,
           active: true,
           createdAt: new Date(),
           options: [],
@@ -131,6 +134,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
           sortOrder: 3,
           isRequired: false,
           allowMultiple: true,
+          includeNoneOption: false,
           active: true,
           createdAt: new Date(),
           options: [],
@@ -147,6 +151,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
       stepName: "",
       isRequired: false,
       allowMultiple: false,
+      includeNoneOption: true,
       options: [],
     });
     setStepDialogOpen(true);
@@ -160,6 +165,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
       stepName: step.stepName,
       isRequired: step.isRequired,
       allowMultiple: step.allowMultiple,
+      includeNoneOption: step.includeNoneOption,
       options: step.options?.map((o, idx) => ({
         name: o.name,
         price: o.price,
@@ -180,6 +186,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
       sortOrder: editingStepIndex >= 0 ? editingStepIndex + 1 : flow.steps.length + 1,
       isRequired: stepForm.isRequired,
       allowMultiple: stepForm.allowMultiple,
+      includeNoneOption: stepForm.includeNoneOption,
       active: true,
       createdAt: new Date(),
       options: stepForm.stepType === "custom" ? stepForm.options.map((o, idx) => ({
@@ -461,7 +468,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
               />
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex flex-col gap-3">
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -484,6 +491,18 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
                   className="rounded"
                 />
                 <span className="text-sm">Permite selección múltiple</span>
+              </label>
+
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={stepForm.includeNoneOption}
+                  onChange={(e) =>
+                    setStepForm({ ...stepForm, includeNoneOption: e.target.checked })
+                  }
+                  className="rounded"
+                />
+                <span className="text-sm">Incluir opción "Sin {stepForm.stepName || "selección"}"</span>
               </label>
             </div>
 

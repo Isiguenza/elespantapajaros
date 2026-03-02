@@ -90,6 +90,7 @@ export interface ModifierStep {
   sortOrder: number;
   isRequired: boolean;
   allowMultiple: boolean;
+  includeNoneOption: boolean;
   active: boolean;
   createdAt: Date;
   options?: ModifierOption[];

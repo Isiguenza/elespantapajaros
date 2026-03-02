@@ -178,6 +178,7 @@ export const modifierSteps = pgTable("modifier_steps", {
   sortOrder: integer("sort_order").notNull().default(0),
   isRequired: boolean("is_required").notNull().default(false),
   allowMultiple: boolean("allow_multiple").notNull().default(false),
+  includeNoneOption: boolean("include_none_option").notNull().default(true),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

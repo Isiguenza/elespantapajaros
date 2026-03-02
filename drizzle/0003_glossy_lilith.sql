@@ -1,0 +1,1 @@
+ALTER TABLE "modifier_steps" ADD COLUMN "include_none_option" boolean DEFAULT true NOT NULL;
