@@ -4,13 +4,23 @@ import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { playNotificationSound } from "@/lib/utils/sound";
 import type { Order } from "@/lib/types";
-import { SpeakerHigh, GridFour } from "@phosphor-icons/react";
+import { SpeakerHigh, GridFour, Check } from "@phosphor-icons/react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 
 export default function DispatchMonitorPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [previousOrderIds, setPreviousOrderIds] = useState<Set<string>>(new Set());
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    // Leer del localStorage al iniciar
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('dispatch_sound_enabled');
+      return saved !== 'false'; // Por defecto true
+    }
+    return true;
+  });
+  const [audioInitialized, setAudioInitialized] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -20,7 +30,16 @@ export default function DispatchMonitorPage() {
         const newOrderIds = new Set<string>(newOrders.map((o: Order) => o.id));
         const hasNewOrder = newOrders.some((o: Order) => !previousOrderIds.has(o.id));
         
-        if (hasNewOrder && previousOrderIds.size > 0) {
+        console.log('📊 Dispatch check:', {
+          totalOrders: newOrders.length,
+          hasNewOrder,
+          previousCount: previousOrderIds.size,
+          soundEnabled,
+          willPlaySound: hasNewOrder && previousOrderIds.size > 0 && soundEnabled
+        });
+        
+        if (hasNewOrder && previousOrderIds.size > 0 && soundEnabled) {
+          console.log('🔔 ¡Nueva orden detectada! - llamando playNotificationSound()');
           playNotificationSound();
         }
         
@@ -30,13 +49,38 @@ export default function DispatchMonitorPage() {
     } catch (error) {
       console.error("Error fetching orders:", error);
     }
-  }, [previousOrderIds]);
+  }, [previousOrderIds, soundEnabled]);
 
   useEffect(() => {
     fetchOrders();
     const interval = setInterval(fetchOrders, 3000);
     return () => clearInterval(interval);
   }, [fetchOrders]);
+
+  // Auto-inicializar audio en primera interacción si el sonido está activado
+  useEffect(() => {
+    if (soundEnabled && !audioInitialized) {
+      const handleFirstInteraction = () => {
+        console.log('🎵 Primera interacción detectada - inicializando audio...');
+        initializeAudio();
+        // Remover listeners después de la primera interacción
+        document.removeEventListener('click', handleFirstInteraction);
+        document.removeEventListener('keydown', handleFirstInteraction);
+        document.removeEventListener('touchstart', handleFirstInteraction);
+      };
+
+      // Escuchar cualquier interacción del usuario
+      document.addEventListener('click', handleFirstInteraction);
+      document.addEventListener('keydown', handleFirstInteraction);
+      document.addEventListener('touchstart', handleFirstInteraction);
+
+      return () => {
+        document.removeEventListener('click', handleFirstInteraction);
+        document.removeEventListener('keydown', handleFirstInteraction);
+        document.removeEventListener('touchstart', handleFirstInteraction);
+      };
+    }
+  }, [soundEnabled, audioInitialized]);
 
   function getOrderUrgency(order: Order) {
     const minutes = Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000);
@@ -74,20 +118,139 @@ export default function DispatchMonitorPage() {
     });
   }
 
+  async function markAsDelivered(orderId: string, orderNumber: number) {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "delivered" }),
+      });
+
+      if (res.ok) {
+        toast.success(`Orden #${orderNumber} marcada como entregada`);
+        fetchOrders();
+      } else {
+        toast.error("Error al marcar orden");
+      }
+    } catch (error) {
+      toast.error("Error al marcar orden");
+    }
+  }
+
+  function parseCustomModifiers(customModifiers: string | null) {
+    if (!customModifiers) return null;
+    try {
+      return JSON.parse(customModifiers);
+    } catch {
+      return null;
+    }
+  }
+
+  async function initializeAudio() {
+    try {
+      console.log("🎵 Intentando inicializar audio...");
+      
+      // Intentar inicializar AudioContext primero
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      await audioContext.resume();
+      console.log("✅ AudioContext inicializado");
+      
+      // Intentar pre-cargar el archivo de audio
+      let audioLoaded = false;
+      
+      // Intentar .mp3 primero
+      try {
+        const audio = new Audio("/notification.mp3");
+        audio.volume = 0.01; // Muy bajo pero no 0
+        await audio.play();
+        audio.pause();
+        console.log("✅ notification.mp3 pre-cargado");
+        audioLoaded = true;
+      } catch (mp3Error) {
+        console.log("⚠️ No se pudo pre-cargar .mp3:", mp3Error);
+      }
+      
+      // Si mp3 falla, intentar .wav
+      if (!audioLoaded) {
+        try {
+          const audio = new Audio("/notification.wav");
+          audio.volume = 0.01;
+          await audio.play();
+          audio.pause();
+          console.log("✅ notification.wav pre-cargado");
+          audioLoaded = true;
+        } catch (wavError) {
+          console.log("⚠️ No se pudo pre-cargar .wav:", wavError);
+        }
+      }
+      
+      setAudioInitialized(true);
+      
+      if (audioLoaded) {
+        console.log("✅ Audio inicializado completamente");
+        toast.success("Sonido activado - archivo de audio cargado");
+      } else {
+        console.log("✅ Audio inicializado (usando beep como fallback)");
+        toast.success("Sonido activado - usando beep");
+      }
+    } catch (error) {
+      console.error("❌ Error inicializando audio:", error);
+      toast.error("Error al inicializar audio");
+      // Aún así marcamos como inicializado para que al menos intente el beep
+      setAudioInitialized(true);
+    }
+  }
+
+  function toggleSound() {
+    const newState = !soundEnabled;
+    setSoundEnabled(newState);
+    
+    // Guardar en localStorage
+    localStorage.setItem('dispatch_sound_enabled', String(newState));
+    
+    if (newState && !audioInitialized) {
+      // Si está activando el sonido por primera vez, inicializar audio
+      initializeAudio();
+    } else if (newState) {
+      toast.success("Sonido activado");
+    } else {
+      toast.info("Sonido desactivado");
+    }
+  }
+
   return (
-    <div className="h-screen bg-black p-6 overflow-auto">
-      {/* Top right controls */}
-      <div className="fixed top-6 right-6 flex gap-2 z-50">
-        <button className="p-2 rounded-lg bg-neutral-800 hover:bg-neutral-700">
-          <SpeakerHigh className="size-5 text-white" />
-        </button>
-        <button className="p-2 rounded-lg bg-neutral-800 hover:bg-neutral-700">
-          <GridFour className="size-5 text-white" />
-        </button>
+    <div className="h-screen bg-black flex flex-col">
+      {/* Header fijo */}
+      <div className="bg-neutral-900 border-b border-neutral-800 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-white text-2xl font-bold">Monitor de Cocina</h1>
+            <p className="text-neutral-400 text-sm mt-1">
+              {orders.length} {orders.length === 1 ? 'orden' : 'órdenes'} en preparación
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={toggleSound}
+              className={`p-3 rounded-lg transition-colors ${
+                soundEnabled 
+                  ? 'bg-green-600 hover:bg-green-700' 
+                  : 'bg-neutral-700 hover:bg-neutral-600'
+              }`}
+              title={soundEnabled ? 'Sonido activado' : 'Sonido desactivado'}
+            >
+              <SpeakerHigh className="size-6 text-white" weight={soundEnabled ? 'fill' : 'regular'} />
+            </button>
+            <button className="p-3 rounded-lg bg-neutral-700 hover:bg-neutral-600">
+              <GridFour className="size-6 text-white" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Grid de órdenes */}
-      <div className="grid grid-cols-4 gap-4 max-w-screen-2xl">
+      {/* Grid de órdenes con scroll */}
+      <div className="flex-1 overflow-auto p-6">
+        <div className="grid grid-cols-4 gap-4 max-w-screen-2xl">
         {orders.length === 0 ? (
           <div className="col-span-4 flex items-center justify-center h-96 text-neutral-500">
             No hay órdenes pendientes
@@ -112,32 +275,58 @@ export default function DispatchMonitorPage() {
                 </div>
 
                 <div className="px-4 py-3">
-                  {/* Nombre del mesero/cajero */}
+                  {/* Nombre del cliente */}
                   <div className="text-neutral-400 text-xs mb-3">
-                    Para llevar • Laura
+                    Para llevar • {order.customerName || 'Sin nombre'}
                   </div>
 
                   {/* Items */}
                   <div className="space-y-2">
-                    {visibleItems?.map((item, idx) => (
-                      <div key={idx} className="text-white">
-                        <div className="flex items-start gap-2">
-                          <span className="font-semibold">{item.quantity}</span>
-                          <div className="flex-1">
-                            <div className="font-medium">{item.productName}</div>
-                            {item.frostingName && (
-                              <div className="text-blue-400 text-sm">{item.frostingName}</div>
-                            )}
-                            {item.dryToppingName && (
-                              <div className="text-neutral-400 text-sm">{item.dryToppingName}</div>
-                            )}
-                            {item.extraName && (
-                              <div className="text-neutral-400 text-sm">{item.extraName}</div>
-                            )}
+                    {visibleItems?.map((item, idx) => {
+                      const customMods = parseCustomModifiers(item.customModifiers || null);
+                      return (
+                        <div key={idx} className="text-white">
+                          <div className="flex items-start gap-2">
+                            <span className="font-semibold">{item.quantity}</span>
+                            <div className="flex-1">
+                              <div className="font-medium">{item.productName}</div>
+                              {item.frostingName && (
+                                <div className="text-blue-400 text-sm">• {item.frostingName}</div>
+                              )}
+                              {item.dryToppingName && (
+                                <div className="text-purple-400 text-sm">• {item.dryToppingName}</div>
+                              )}
+                              {item.extraName && (
+                                <div className="text-green-400 text-sm">• {item.extraName}</div>
+                              )}
+                              {customMods && Object.entries(customMods).map(([key, value]) => {
+                                // Si value es un objeto con stepName y options
+                                if (typeof value === 'object' && value !== null && 'stepName' in value && 'options' in value) {
+                                  const step = value as { stepName: string; options: Array<{ name: string }> };
+                                  const optionNames = step.options.map(opt => opt.name).join(', ');
+                                  return (
+                                    <div key={key} className="text-amber-400 text-sm">
+                                      • {step.stepName}: {optionNames || 'N/A'}
+                                    </div>
+                                  );
+                                }
+                                // Fallback para otros tipos de valores
+                                return (
+                                  <div key={key} className="text-amber-400 text-sm">
+                                    • {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                  </div>
+                                );
+                              })}
+                              {item.notes && (
+                                <div className="text-yellow-300 text-sm italic mt-1">
+                                  📝 {item.notes}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     {/* Botón para expandir/contraer */}
                     {hasMoreItems && (
@@ -150,11 +339,18 @@ export default function DispatchMonitorPage() {
                       </button>
                     )}
                   </div>
+
+                  {/* Slide to confirm entrega */}
+                  <div className="mt-4">
+                    <p className="text-xs text-neutral-400 mb-2 text-center">Desliza para marcar como entregado</p>
+                    <SlideToConfirm onConfirm={() => markAsDelivered(order.id, order.orderNumber)} />
+                  </div>
                 </div>
               </div>
             );
           })
         )}
+        </div>
       </div>
     </div>
   );

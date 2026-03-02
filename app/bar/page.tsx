@@ -18,7 +18,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X } from "@phosphor-icons/react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank } from "@phosphor-icons/react";
+import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 import { toast } from "sonner";
 import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption } from "@/lib/types";
 
@@ -43,10 +45,23 @@ export default function BarPage() {
   const [selectedFrosting, setSelectedFrosting] = useState<Frosting | null>(null);
   const [selectedTopping, setSelectedTopping] = useState<DryTopping | null>(null);
   const [selectedExtras, setSelectedExtras] = useState<Extra[]>([]);
+  const [productNotes, setProductNotes] = useState<string>("");
   
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  
+  // Estados de pago inline
+  const [showingPayment, setShowingPayment] = useState(false);
+  const [showingLoyaltyStep, setShowingLoyaltyStep] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "terminal_mercadopago" | "transfer" | null>(null);
+  const [cashReceived, setCashReceived] = useState("");
+  const [waitingForTerminal, setWaitingForTerminal] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [confirmingOrder, setConfirmingOrder] = useState(false);
+  
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>('');
   const [showDashboard, setShowDashboard] = useState(true);
@@ -347,11 +362,12 @@ export default function BarPage() {
       [currentStep.id]: selection,
     });
     
-    // Avanzar al siguiente paso o finalizar
+    // Avanzar al siguiente paso o mostrar pantalla de notas
     if (currentStepIndex < categoryFlow.steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else {
-      finishFlowAndAddToCart();
+      // Último paso completado, mostrar pantalla de notas
+      setCurrentStepIndex(categoryFlow.steps.length); // Índice especial para notas
     }
   }
 
@@ -394,7 +410,7 @@ export default function BarPage() {
       productName: selectedProduct.name,
       unitPrice: totalPrice,
       quantity: 1,
-      notes: "",
+      notes: productNotes,
       frostingId: selectedFrosting?.id,
       frostingName: selectedFrosting?.name,
       dryToppingId: selectedTopping?.id,
@@ -435,6 +451,7 @@ export default function BarPage() {
     setSelectedFrosting(null);
     setSelectedTopping(null);
     setSelectedExtras([]);
+    setProductNotes("");
   }
 
   function handleBackInFlow() {
@@ -663,12 +680,17 @@ export default function BarPage() {
         body: JSON.stringify({
           items: cart.map((item) => ({
             productId: item.productId,
+            productName: item.productName,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             notes: item.notes,
             frostingId: item.frostingId,
+            frostingName: item.frostingName,
             dryToppingId: item.dryToppingId,
+            dryToppingName: item.dryToppingName,
             extraId: item.extraId,
+            extraName: item.extraName,
+            customModifiers: item.customModifiers,
           })),
           employeeId,
           paymentStatus: "pending",
@@ -679,26 +701,163 @@ export default function BarPage() {
       if (!res.ok) throw new Error();
       const order = await res.json();
       
-      // Si hay tarjeta de lealtad, agregar sello
+      setCurrentOrderId(order.id);
+      // Si ya tiene cliente frecuente, ir directo a pago, si no, mostrar paso de loyalty
       if (loyaltyCard) {
-        try {
-          await fetch(`/api/loyalty-cards/${loyaltyCard.id}/stamp`, {
-            method: "POST",
-          });
-          toast.success(`Sello agregado a ${loyaltyCard.customerName}`);
-        } catch (error) {
-          console.error("Error adding stamp:", error);
-        }
+        setShowingPayment(true);
+      } else {
+        setShowingLoyaltyStep(true);
       }
-      
-      setCart([]);
-      setLoyaltyCard(null);
       toast.success("Orden creada");
-      router.push(`/orders/pay/${order.id}`);
     } catch (error) {
       toast.error("Error creando orden");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function skipLoyaltyAndProceedToPayment() {
+    setShowingLoyaltyStep(false);
+    setShowingPayment(true);
+  }
+
+  async function handlePayCash() {
+    if (!currentOrderId) return;
+    setProcessing(true);
+    try {
+      const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethod: "cash",
+          loyaltyCardId: loyaltyCard?.id || null,
+          loyaltyStamps: 1,
+          userId: employeeId,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Pago en efectivo registrado");
+      setPaymentCompleted(true);
+    } catch {
+      toast.error("Error procesando pago");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function handlePayTransfer() {
+    if (!currentOrderId) return;
+    setProcessing(true);
+    try {
+      const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethod: "transfer",
+          loyaltyCardId: loyaltyCard?.id || null,
+          loyaltyStamps: 1,
+          userId: employeeId,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Pago por transferencia registrado");
+      setPaymentCompleted(true);
+    } catch {
+      toast.error("Error procesando pago");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function handleConfirmOrder() {
+    if (!currentOrderId) return;
+    setConfirmingOrder(true);
+    try {
+      const res = await fetch(`/api/orders/${currentOrderId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "preparing" }),
+      });
+      
+      if (!res.ok) throw new Error();
+      
+      toast.success("Orden enviada a cocina");
+      
+      // Limpiar todo y volver a la vista de productos
+      setCart([]);
+      setLoyaltyCard(null);
+      setShowingPayment(false);
+      setPaymentMethod(null);
+      setCashReceived("");
+      setCurrentOrderId(null);
+      setPaymentCompleted(false);
+    } catch {
+      toast.error("Error confirmando orden");
+    } finally {
+      setConfirmingOrder(false);
+    }
+  }
+
+  async function handlePayTerminal() {
+    if (!currentOrderId) return;
+    setProcessing(true);
+    setWaitingForTerminal(true);
+    try {
+      const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethod: "terminal_mercadopago",
+          loyaltyCardId: loyaltyCard?.id || null,
+          loyaltyStamps: 1,
+          userId: employeeId,
+        }),
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        toast.error(errorData.error || "Error enviando pago a terminal");
+        if (errorData.hint) {
+          toast.error(errorData.hint, { duration: 5000 });
+        }
+        setProcessing(false);
+        setWaitingForTerminal(false);
+        return;
+      }
+
+      // Poll for payment status
+      const pollInterval = setInterval(async () => {
+        const statusRes = await fetch(`/api/orders/${currentOrderId}`);
+        if (statusRes.ok) {
+          const updatedOrder = await statusRes.json();
+          if (updatedOrder.paymentStatus === "paid") {
+            clearInterval(pollInterval);
+            setWaitingForTerminal(false);
+            toast.success("Pago confirmado por terminal");
+            setPaymentCompleted(true);
+            setProcessing(false);
+          } else if (updatedOrder.paymentStatus === "failed") {
+            clearInterval(pollInterval);
+            setWaitingForTerminal(false);
+            setProcessing(false);
+            toast.error("Pago rechazado en terminal");
+          }
+        }
+      }, 2000);
+
+      // Timeout after 2 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (waitingForTerminal) {
+          setWaitingForTerminal(false);
+          setProcessing(false);
+          toast.error("Tiempo de espera agotado");
+        }
+      }, 120000);
+    } catch (error) {
+      toast.error("Error enviando pago a terminal");
+      setProcessing(false);
+      setWaitingForTerminal(false);
     }
   }
 
@@ -931,7 +1090,7 @@ export default function BarPage() {
 
   // Filtrar productos por categoría o búsqueda
   const filteredProducts = searchQuery
-    ? products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())) // Buscar en todas las categorías
     : selectedCategory
     ? products.filter(p => p.categoryId === selectedCategory)
     : [];
@@ -1076,61 +1235,319 @@ export default function BarPage() {
         </div>
       </div>
 
-      {/* COLUMNA DE CATEGORÍAS */}
-      <div className="w-54 mx-6 flex flex-col p-4 gap-3 overflow-y-auto">
-        {/* Searchbar */}
-        <div className="relative mb-2">
-          <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar productos..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              if (e.target.value) setSelectedCategory(null);
-            }}
-            className="pl-9"
-          />
+      {/* VISTA DE PAGO O CATEGORÍAS/PRODUCTOS */}
+      {showingLoyaltyStep ? (
+        // Vista de Cliente Frecuente
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="w-full max-w-2xl space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-3xl font-bold">Cliente Frecuente</h2>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowingLoyaltyStep(false);
+                  setCurrentOrderId(null);
+                }}
+              >
+                ← Cancelar
+              </Button>
+            </div>
+
+            <Card>
+              <CardContent className="p-8 space-y-4">
+                <p className="text-muted-foreground text-center">
+                  ¿El cliente tiene tarjeta de cliente frecuente?
+                </p>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={() => setQrDialogOpen(true)}
+                    className="h-24 flex flex-col gap-2"
+                  >
+                    <QrCode className="size-8" />
+                    <span>Leer QR</span>
+                  </Button>
+                  
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={skipLoyaltyAndProceedToPayment}
+                    className="h-24 flex flex-col gap-2"
+                  >
+                    <X className="size-8" />
+                    <span>Sin tarjeta</span>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {loyaltyCard && (
+              <Card className="border-primary">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="font-semibold text-lg">{loyaltyCard.customerName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {loyaltyCard.stamps} sellos • {loyaltyCard.rewardsAvailable} recompensas
+                      </p>
+                    </div>
+                    <Button onClick={skipLoyaltyAndProceedToPayment} size="lg">
+                      Continuar →
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
+      ) : showingPayment ? (
+        // Vista de Pago Inline
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="w-full max-w-2xl space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-3xl font-bold">Procesar Pago</h2>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowingPayment(false);
+                  setPaymentMethod(null);
+                  setCashReceived("");
+                  setWaitingForTerminal(false);
+                  setProcessing(false);
+                }}
+              >
+                ← Cancelar
+              </Button>
+            </div>
 
-        {categories.map((category) => {
-          const isSelected = selectedCategory === category.id;
-          const categoryColor = category.color || '#6B7280';
-          
-          return (
-            <button
-              key={category.id}
-              onClick={() => {
-                setSelectedCategory(category.id);
-                setSearchQuery('');
-              }}
-              className={`px-5 py-8 text-center rounded-lg transition-all relative overflow-hidden ${
-                isSelected ? 'font-semibold' : 'hover:scale-105 bg-muted/30'
-              }`}
-              style={{
-                backgroundColor: isSelected ? `${categoryColor}20` : undefined,
-                borderWidth: isSelected ? '2px' : '1px',
-                borderColor: isSelected ? categoryColor : '#5153566d',
-                color: isSelected ? categoryColor : 'inherit',
-              }}
-            >
-              <div>{category.name}</div>
-              {!isSelected && (
-                <div 
-                  className="absolute bottom-0 left-0 right-0 h-1"
-                  style={{ backgroundColor: categoryColor }}
-                />
+            {/* Total de la orden */}
+            <div className="bg-primary/10 rounded-lg p-6">
+              <div className="flex items-center justify-between">
+                <span className="text-xl font-medium">Total a pagar:</span>
+                <span className="text-4xl font-bold">{formatCurrency(cartTotal)}</span>
+              </div>
+              {loyaltyCard && (
+                <p className="text-sm text-muted-foreground mt-3">
+                  Cliente: {loyaltyCard.customerName} • Se agregará 1 sello
+                </p>
               )}
-            </button>
-          );
-        })}
-      </div>
+            </div>
 
-      {/* AREA PRINCIPAL - FLUJO DINÁMICO */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Vista de confirmación con slide button */}
+            {paymentCompleted ? (
+              <div className="space-y-6">
+                <Card className="border-green-500 bg-green-500/10">
+                  <CardContent className="flex flex-col items-center justify-center p-8">
+                    <Check className="mb-4 size-20 text-green-600" weight="bold" />
+                    <p className="text-2xl font-bold mb-2">Pago Completado</p>
+                    <p className="text-muted-foreground">
+                      {paymentMethod === "cash" && "Efectivo recibido"}
+                      {paymentMethod === "transfer" && "Transferencia confirmada"}
+                      {paymentMethod === "terminal_mercadopago" && "Pago con terminal confirmado"}
+                    </p>
+                    <p className="text-3xl font-bold mt-4">{formatCurrency(cartTotal)}</p>
+                  </CardContent>
+                </Card>
+
+                <div>
+                  <p className="text-center text-sm text-muted-foreground mb-4">
+                    Desliza para confirmar y enviar a cocina
+                  </p>
+                  <SlideToConfirm onConfirm={handleConfirmOrder} disabled={confirmingOrder} />
+                </div>
+              </div>
+            ) : !waitingForTerminal ? (
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Card
+                  className={`cursor-pointer transition-all hover:shadow-lg ${
+                    paymentMethod === "cash" ? "ring-2 ring-primary" : ""
+                  }`}
+                  onClick={() => setPaymentMethod("cash")}
+                >
+                  <CardContent className="flex flex-col items-center justify-center p-6">
+                    <Money className="mb-3 size-16 text-green-600" />
+                    <p className="text-lg font-semibold">Efectivo</p>
+                  </CardContent>
+                </Card>
+
+                <Card
+                  className={`cursor-pointer transition-all hover:shadow-lg ${
+                    paymentMethod === "terminal_mercadopago" ? "ring-2 ring-primary" : ""
+                  }`}
+                  onClick={() => setPaymentMethod("terminal_mercadopago")}
+                >
+                  <CardContent className="flex flex-col items-center justify-center p-6">
+                    <CreditCard className="mb-3 size-16 text-blue-600" />
+                    <p className="text-lg font-semibold">Terminal</p>
+                  </CardContent>
+                </Card>
+
+                <Card
+                  className={`cursor-pointer transition-all hover:shadow-lg ${
+                    paymentMethod === "transfer" ? "ring-2 ring-primary" : ""
+                  }`}
+                  onClick={() => setPaymentMethod("transfer")}
+                >
+                  <CardContent className="flex flex-col items-center justify-center p-6">
+                    <Bank className="mb-3 size-16 text-purple-600" />
+                    <p className="text-lg font-semibold">Transferencia</p>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center p-12">
+                  <Spinner className="mb-4 size-16 animate-spin text-primary" />
+                  <p className="text-xl font-semibold">Esperando pago en terminal...</p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Presenta la tarjeta o dispositivo en la terminal Mercado Pago
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="mt-6"
+                    onClick={() => {
+                      setWaitingForTerminal(false);
+                      setProcessing(false);
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Detalles de pago en efectivo */}
+            {paymentMethod === "cash" && !waitingForTerminal && !processing && (
+              <Card>
+                <CardContent className="space-y-4 p-6">
+                  <div>
+                    <Label className="text-base font-medium">Efectivo recibido</Label>
+                    <Input
+                      type="number"
+                      placeholder="0.00"
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(e.target.value)}
+                      className="mt-2 text-3xl font-bold"
+                      autoFocus
+                    />
+                  </div>
+                  {parseFloat(cashReceived) > 0 && (
+                    <div className="flex items-center justify-between rounded-lg bg-muted p-4">
+                      <span className="text-lg font-medium">Cambio</span>
+                      <span
+                        className={`text-2xl font-bold ${
+                          parseFloat(cashReceived) - cartTotal >= 0 
+                            ? "text-green-600" 
+                            : "text-destructive"
+                        }`}
+                      >
+                        {formatCurrency(Math.max(0, parseFloat(cashReceived) - cartTotal))}
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Botón de pago */}
+            {paymentMethod && !waitingForTerminal && !paymentCompleted && (
+              <Button
+                size="lg"
+                className="w-full text-xl py-8"
+                disabled={
+                  processing ||
+                  (paymentMethod === "cash" && parseFloat(cashReceived) < cartTotal)
+                }
+                onClick={
+                  paymentMethod === "cash" 
+                    ? handlePayCash 
+                    : paymentMethod === "transfer"
+                    ? handlePayTransfer
+                    : handlePayTerminal
+                }
+              >
+                {processing ? (
+                  <>
+                    <Spinner className="mr-2 size-6 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <Check className="mr-2 size-6" />
+                    Cobrar {formatCurrency(cartTotal)}
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* COLUMNA DE CATEGORÍAS VERTICAL */}
+          <div className="w-54 mx-6 flex flex-col p-4 gap-3 overflow-y-auto">
+            {/* Searchbar */}
+            <div className="relative mb-2">
+              <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar productos..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (e.target.value) setSelectedCategory(null);
+                }}
+                className="pl-9"
+              />
+            </div>
+
+            {categories.map((category) => {
+              const isSelected = selectedCategory === category.id;
+              const categoryColor = category.color || '#6B7280';
+              
+              return (
+                <button
+                  key={category.id}
+                  onClick={() => {
+                    setSelectedCategory(category.id);
+                    setSearchQuery('');
+                    // Resetear flow al cambiar de categoría
+                    resetFlow();
+                  }}
+                  className={`px-5 py-8 text-center rounded-lg transition-all relative overflow-hidden ${
+                    isSelected ? 'font-semibold' : 'hover:scale-105 bg-muted/30'
+                  }`}
+                  style={{
+                    backgroundColor: isSelected ? `${categoryColor}20` : undefined,
+                    borderWidth: isSelected ? '2px' : '1px',
+                    borderColor: isSelected ? categoryColor : '#5153566d',
+                    color: isSelected ? categoryColor : 'inherit',
+                  }}
+                >
+                  <div>{category.name}</div>
+                  {!isSelected && (
+                    <div 
+                      className="absolute bottom-0 left-0 right-0 h-1"
+                      style={{ backgroundColor: categoryColor }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* AREA PRINCIPAL - FLUJO DINÁMICO */}
+          <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header con título y botón back */}
         <div className="p-4 border-b flex items-center justify-between">
           <div>
             {currentStepIndex === -1 && <h2 className="text-2xl font-bold">Selecciona un producto</h2>}
+            {currentStepIndex >= 0 && categoryFlow && currentStepIndex === categoryFlow.steps.length && (
+              <div>
+                <h2 className="text-2xl font-bold">Notas (opcional)</h2>
+                <p className="text-sm text-muted-foreground">{selectedProduct?.name}</p>
+              </div>
+            )}
             {currentStepIndex >= 0 && categoryFlow && categoryFlow.steps[currentStepIndex] && (
               <div>
                 <h2 className="text-2xl font-bold">{categoryFlow.steps[currentStepIndex].stepName}</h2>
@@ -1272,10 +1689,25 @@ export default function BarPage() {
             return (
               <div className="flex-1 flex flex-col p-8 overflow-auto">
                 <div className="grid grid-cols-4 gap-4 max-w-6xl mb-6">
+                  {currentStep.includeNoneOption && (
+                    <button
+                      onClick={() => handleStepSelection([])}
+                      className="h-32 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center font-semibold transition-colors border-2 border-transparent hover:border-primary"
+                    >
+                      Sin {currentStep.stepName.toLowerCase()}
+                    </button>
+                  )}
                   {extras.map((extra) => (
                     <button
                       key={extra.id}
-                      onClick={() => toggleExtra(extra)}
+                      onClick={() => {
+                        const newExtras = selectedExtras.find(e => e.id === extra.id)
+                          ? selectedExtras.filter(e => e.id !== extra.id)
+                          : [...selectedExtras, extra];
+                        setSelectedExtras(newExtras);
+                        // Avanzar automáticamente después de seleccionar
+                        setTimeout(() => handleStepSelection(newExtras), 300);
+                      }}
                       className={`h-32 rounded-lg flex flex-col items-center justify-center font-semibold transition-colors border-2 ${
                         selectedExtras.find(e => e.id === extra.id)
                           ? 'bg-primary text-primary-foreground border-primary'
@@ -1286,15 +1718,6 @@ export default function BarPage() {
                       <div className="text-sm opacity-80">{formatCurrency(parseFloat(extra.price))}</div>
                     </button>
                   ))}
-                </div>
-                <div className="flex gap-4 max-w-6xl">
-                  <Button
-                    onClick={() => handleStepSelection(selectedExtras)}
-                    size="lg"
-                    className="flex-1"
-                  >
-                    {currentStepIndex < categoryFlow.steps.length - 1 ? "Continuar" : "Agregar al carrito"}
-                  </Button>
                 </div>
               </div>
             );
@@ -1332,7 +1755,41 @@ export default function BarPage() {
           
           return null;
         })()}
-      </div>
+
+        {/* VISTA: NOTAS (después del último paso) */}
+        {currentStepIndex >= 0 && categoryFlow && currentStepIndex === categoryFlow.steps.length && (
+          <div className="flex-1 flex flex-col p-8 overflow-auto">
+            <div className="max-w-2xl mx-auto w-full space-y-6">
+              <div>
+                <Label htmlFor="product-notes" className="text-lg">¿Alguna nota especial para este producto?</Label>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Opcional: indica preferencias, alergias o instrucciones especiales
+                </p>
+              </div>
+              
+              <textarea
+                id="product-notes"
+                value={productNotes}
+                onChange={(e) => setProductNotes(e.target.value)}
+                placeholder="Ej: Sin azúcar, extra picante, sin cebolla..."
+                className="w-full h-32 p-4 rounded-lg border bg-background resize-none"
+              />
+
+              <div className="flex gap-4">
+                <Button
+                  onClick={finishFlowAndAddToCart}
+                  size="lg"
+                  className="flex-1"
+                >
+                  Agregar al carrito
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+          </div>
+        </>
+      )}
 
       {/* Dialog Leer QR */}
       <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>

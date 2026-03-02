@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
         dryToppingName?: string | null;
         extraId?: string | null;
         extraName?: string | null;
+        customModifiers?: string | null;
       }) => ({
         orderId: order.id,
         productId: item.productId,
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest) {
         dryToppingName: item.dryToppingName || null,
         extraId: item.extraId || null,
         extraName: item.extraName || null,
+        customModifiers: item.customModifiers || null,
       })
     );
 

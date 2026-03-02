@@ -50,6 +50,7 @@ export async function GET(
             sortOrder: 3,
             isRequired: false,
             allowMultiple: true,
+            includeNoneOption: true,
             options: [],
           },
         ],

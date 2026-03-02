@@ -3,16 +3,38 @@ export function playNotificationSound() {
   try {
     // Check if notifications are muted
     const isMuted = localStorage.getItem("notifications_muted") === "true";
-    if (isMuted) return;
+    console.log("🔊 playNotificationSound llamado - Muted:", isMuted);
+    if (isMuted) {
+      console.log("🔇 Sonido silenciado por usuario");
+      return;
+    }
 
-    // Try to play audio file if it exists
-    const audio = new Audio("/notification.mp3");
-    audio.volume = 0.5;
-    audio.play().catch(() => {
-      // If audio file fails, use Web Audio API to generate beep
-      generateBeep();
-    });
+    // Try to play audio file if it exists (try .wav first, then .mp3)
+    const tryPlayAudio = async () => {
+      try {
+        console.log("🎵 Intentando reproducir /notification.wav");
+        const audio = new Audio("/notification.wav");
+        audio.volume = 0.5;
+        await audio.play();
+        console.log("✅ notification.wav reproducido exitosamente");
+      } catch (error) {
+        console.log("❌ Error con .wav:", error);
+        try {
+          console.log("🎵 Intentando reproducir /notification.mp3");
+          const audio = new Audio("/notification.mp3");
+          audio.volume = 0.5;
+          await audio.play();
+          console.log("✅ notification.mp3 reproducido exitosamente");
+        } catch (error2) {
+          console.log("❌ Error con .mp3:", error2);
+          console.log("🔔 Usando beep generado como fallback");
+          generateBeep();
+        }
+      }
+    };
+    tryPlayAudio();
   } catch (error) {
+    console.error("❌ Error general en playNotificationSound:", error);
     // Fallback to beep if audio fails
     generateBeep();
   }

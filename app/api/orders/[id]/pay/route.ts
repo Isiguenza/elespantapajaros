@@ -81,11 +81,11 @@ export async function POST(
         );
       }
     } else {
-      // Cash payment - mark as paid but keep status as pending (will change to preparing after slide confirmation)
+      // Cash or Transfer payment - mark as paid but keep status as pending (will change to preparing after confirmation)
       await db
         .update(orders)
         .set({
-          paymentMethod: "cash",
+          paymentMethod: paymentMethod, // "cash" or "transfer"
           paymentStatus: "paid",
           // status stays "pending" - will be changed to "preparing" after slide button confirmation
           loyaltyCardId: loyaltyCardId || null,
