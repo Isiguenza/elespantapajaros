@@ -521,14 +521,27 @@ export default function BarPage() {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         
+        console.log("📹 Stream asignado al video. Dimensiones del track:", 
+          stream.getVideoTracks()[0].getSettings());
+        
+        // Esperar a que el video cargue metadata
+        const handleLoadedMetadata = () => {
+          console.log("✅ Video metadata cargada. VideoWidth:", 
+            videoRef.current?.videoWidth, 
+            "VideoHeight:", 
+            videoRef.current?.videoHeight);
+        };
+        
+        videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+        
         // Esperar a que el video esté listo y reproducirlo explícitamente
         try {
           await videoRef.current.play();
           console.log("✅ Video reproduciendo");
           setCameraActive(true);
           
-          // Start scanning
-          scanQRCode();
+          // Start scanning después de un pequeño delay para asegurar que el video esté listo
+          setTimeout(() => scanQRCode(), 100);
         } catch (playError) {
           console.error("❌ Error al reproducir video:", playError);
           toast.error("Error al iniciar video. Intenta de nuevo.");
@@ -1854,13 +1867,14 @@ export default function BarPage() {
 
             {/* Video Preview */}
             {cameraActive && (
-              <div className="relative rounded-lg overflow-hidden bg-black">
+              <div className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: '256px' }}>
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
                   className="w-full h-64 object-cover"
+                  style={{ minHeight: '256px' }}
                 />
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="absolute inset-0 border-2 border-primary/50 pointer-events-none">
