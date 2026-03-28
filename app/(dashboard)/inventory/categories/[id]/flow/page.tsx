@@ -308,7 +308,7 @@ export default function CategoryFlowPage({ params }: { params: Promise<{ id: str
               <h2 className="text-lg font-semibold">Tipo de Flujo</h2>
               <p className="text-sm text-muted-foreground">
                 {flow.useDefaultFlow
-                  ? "Usando flujo predeterminado (Escarchado → Topping → Extras)"
+                  ? "Flujo simplificado - Los productos se agregan directamente al carrito"
                   : "Usando flujo personalizado"}
               </p>
             </div>

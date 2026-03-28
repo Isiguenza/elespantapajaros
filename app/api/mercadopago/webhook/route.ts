@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { orders } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { orders, tables } from "@/lib/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,15 +40,23 @@ export async function POST(request: NextRequest) {
 
         if (externalReference) {
           if (payment.status === "approved") {
+            const existingOrder = await db.query.orders.findFirst({ where: eq(orders.id, externalReference) });
             await db
               .update(orders)
               .set({
                 paymentStatus: "paid",
-                status: "preparing",
+                status: "delivered",
                 mercadopagoPaymentId: payment.id.toString(),
                 updatedAt: new Date(),
               })
               .where(eq(orders.id, externalReference));
+            
+            // Liberar mesa si tiene una asignada
+            if (existingOrder?.tableId) {
+              await db.update(orders).set({ status: "delivered", updatedAt: new Date() }).where(and(eq(orders.tableId, existingOrder.tableId), inArray(orders.status, ["pending", "preparing", "ready"])));
+              await db.update(tables).set({ status: "available" }).where(eq(tables.id, existingOrder.tableId));
+              console.log(`[Webhook] Mesa ${existingOrder.tableId} liberada`);
+            }
           } else if (
             payment.status === "rejected" ||
             payment.status === "cancelled"
@@ -77,16 +85,23 @@ export async function POST(request: NextRequest) {
       });
 
       if (order) {
-        console.log(`[Webhook] Updating order ${order.id} to PAID`);
+        console.log(`[Webhook] Updating order ${order.id} to PAID + DELIVERED`);
         await db
           .update(orders)
           .set({
             paymentStatus: "paid",
-            status: "preparing",
+            status: "delivered",
             mercadopagoPaymentId: body.payment.id.toString(),
             updatedAt: new Date(),
           })
           .where(eq(orders.id, order.id));
+        
+        // Liberar mesa si tiene una asignada
+        if (order.tableId) {
+          await db.update(orders).set({ status: "delivered", updatedAt: new Date() }).where(and(eq(orders.tableId, order.tableId), inArray(orders.status, ["pending", "preparing", "ready"])));
+          await db.update(tables).set({ status: "available" }).where(eq(tables.id, order.tableId));
+          console.log(`[Webhook] Mesa ${order.tableId} liberada`);
+        }
       } else {
         console.log(`[Webhook] No order found for payment intent ${paymentIntentId}`);
       }

@@ -12,10 +12,18 @@ export async function PATCH(
     const body = await request.json();
     const { status } = body;
 
+    console.log(`🔄 PATCH /api/orders/${id}/status - Cambiando status a: ${status}`);
+
     const validStatuses = ["pending", "preparing", "ready", "delivered", "cancelled"];
     if (!validStatuses.includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
+
+    // Verificar orden antes de actualizar
+    const orderBefore = await db.query.orders.findFirst({
+      where: eq(orders.id, id),
+    });
+    console.log(`📦 Orden ANTES: id=${orderBefore?.id}, status=${orderBefore?.status}, tableId=${orderBefore?.tableId}`);
 
     const [order] = await db
       .update(orders)
@@ -25,6 +33,8 @@ export async function PATCH(
       })
       .where(eq(orders.id, id))
       .returning();
+
+    console.log(`✅ Orden DESPUÉS: id=${order.id}, status=${order.status}, tableId=${order.tableId}`);
 
     return NextResponse.json(order);
   } catch (error) {

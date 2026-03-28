@@ -19,19 +19,33 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank } from "@phosphor-icons/react";
 import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 import { toast } from "sonner";
-import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption } from "@/lib/types";
+import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption, Table, Order } from "@/lib/types";
 
 export default function BarPage() {
   const router = useRouter();
+  
+  // Estados del sistema de mesas
+  const [tables, setTables] = useState<Table[]>([]);
+  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
+  const [showTableSelection, setShowTableSelection] = useState(true);
+  const [deliveryOrders, setDeliveryOrders] = useState<Order[]>([]);
+  const [showCustomerNameDialog, setShowCustomerNameDialog] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [tablesWithReadyItems, setTablesWithReadyItems] = useState<Set<string>>(new Set());
   
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [frostings, setFrostings] = useState<Frosting[]>([]);
   const [toppings, setToppings] = useState<DryTopping[]>([]);
   const [extras, setExtras] = useState<Extra[]>([]);
+  
+  // Estados para variantes de productos
+  const [showVariantDialog, setShowVariantDialog] = useState(false);
+  const [selectedProductForVariant, setSelectedProductForVariant] = useState<Product | null>(null);
   
   // Flujo de modificadores dinámico
   const [categoryFlow, setCategoryFlow] = useState<CategoryFlow | null>(null);
@@ -95,6 +109,8 @@ export default function BarPage() {
   useEffect(() => {
     checkCashRegister();
     restoreSession();
+    // No cargar mesas ni delivery orders hasta que se muestre la pantalla de selección
+    // Esto acelera la carga inicial
   }, []);
 
   useEffect(() => {
@@ -118,6 +134,15 @@ export default function BarPage() {
       loadCategoryFlow(selectedCategory);
     }
   }, [selectedCategory]);
+
+  // Recargar mesas y delivery orders cuando se muestra la pantalla de selección
+  useEffect(() => {
+    if (showTableSelection) {
+      console.log("🔄 Recargando mesas y delivery orders...");
+      fetchTables();
+      fetchDeliveryOrders();
+    }
+  }, [showTableSelection]);
 
   useEffect(() => {
     const updateActivity = () => setLastActivity(Date.now());
@@ -273,6 +298,400 @@ export default function BarPage() {
     setPin('');
   }
 
+  async function fetchTables() {
+    try {
+      const res = await fetch("/api/tables");
+      if (res.ok) {
+        const data = await res.json();
+        setTables(data);
+        // Verificar qué mesas tienen items ready
+        await checkTablesWithReadyItems(data);
+      }
+    } catch (error) {
+      console.error('Error fetching tables:', error);
+      toast.error("Error cargando mesas");
+    }
+  }
+
+  async function checkTablesWithReadyItems(tablesToCheck: Table[]) {
+    try {
+      const tablesWithReady = new Set<string>();
+      
+      // Verificar cada mesa ocupada
+      for (const table of tablesToCheck) {
+        if (table.status === "occupied") {
+          const ordersRes = await fetch(`/api/orders?tableId=${table.id}&status=ready`);
+          if (ordersRes.ok) {
+            const orders = await ordersRes.json();
+            if (orders.length > 0) {
+              tablesWithReady.add(table.id);
+            }
+          }
+        }
+      }
+      
+      setTablesWithReadyItems(tablesWithReady);
+    } catch (error) {
+      console.error('Error checking tables with ready items:', error);
+    }
+  }
+
+  async function fetchDeliveryOrders() {
+    try {
+      // Cargar órdenes Para Llevar activas (sin mesa, status preparing, ready o pending)
+      const res = await fetch("/api/orders?status=preparing,ready,pending&noTable=true");
+      if (res.ok) {
+        const deliveryOnly = await res.json();
+        setDeliveryOrders(deliveryOnly);
+      }
+    } catch (error) {
+      console.error('Error fetching delivery orders:', error);
+    }
+  }
+
+  async function handleSelectTable(table: Table) {
+    setSelectedTable(table);
+    setShowTableSelection(false);
+    
+    // Cargar todas las órdenes de la mesa (preparing, ready, pending)
+    try {
+      console.log("📋 Cargando órdenes de mesa:", table.id);
+      
+      // Buscar órdenes de esta mesa con status preparing, ready o pending
+      const ordersRes = await fetch(`/api/orders?tableId=${table.id}&status=preparing,ready,pending`);
+      
+      if (ordersRes.ok) {
+        const orders = await ordersRes.json();
+        console.log("📦 Órdenes encontradas:", orders);
+        console.log("📊 Cantidad de órdenes:", orders.length);
+        orders.forEach((order: any) => {
+          console.log(`  - Orden ${order.id}: status=${order.status}, items=${order.items?.length || 0}, paymentStatus=${order.paymentStatus}`);
+        });
+        
+        // Verificar si hay órdenes con status delivered (no deberían aparecer)
+        const deliveredOrders = orders.filter((o: any) => o.status === 'delivered');
+        if (deliveredOrders.length > 0) {
+          console.error("⚠️ ERROR: Se encontraron órdenes con status 'delivered' que no deberían estar aquí:", deliveredOrders);
+        }
+        
+        if (orders.length > 0) {
+          // Combinar todos los items de todas las órdenes
+          const allCartItems: CartItem[] = [];
+          
+          for (const order of orders) {
+            console.log(`🔄 Procesando orden ${order.id} con status ${order.status}`);
+            const items = order.items.map((item: any) => ({
+              productId: item.productId,
+              productName: item.productName,
+              unitPrice: parseFloat(item.unitPrice),
+              quantity: item.quantity,
+              notes: item.notes || "",
+              frostingId: item.frostingId,
+              frostingName: item.frostingName,
+              dryToppingId: item.dryToppingId,
+              dryToppingName: item.dryToppingName,
+              extraId: item.extraId,
+              extraName: item.extraName,
+              customModifiers: item.customModifiers,
+              sentToKitchen: order.status === "preparing" || order.status === "ready" || order.status === "delivered", // Marcar como enviados
+              orderStatus: order.status, // Guardar status para mostrar badge correcto
+              orderId: order.id, // Guardar ID de la orden
+              itemId: item.id, // Guardar ID del item en BD
+              deliveredToTable: item.deliveredToTable || false, // Estado de entrega física
+            }));
+            allCartItems.push(...items);
+          }
+          
+          console.log("🛒 Items cargados al carrito:", allCartItems);
+          setCart(allCartItems);
+          setCurrentOrderId(orders[0].id); // Usar el ID de la primera orden
+          toast.success(`Cuenta de Mesa ${table.number} cargada (${allCartItems.length} items)`);
+        } else {
+          toast.success(`Mesa ${table.number} seleccionada`);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading table orders:', error);
+      toast.error("Error cargando cuenta de la mesa");
+    }
+  }
+
+  function handleChangeTable() {
+    setShowTableSelection(true);
+    setSelectedTable(null);
+    setCart([]);
+    setCurrentOrderId(null);
+    setCustomerName("");
+  }
+
+  function handleNewDeliveryOrder() {
+    console.log("🛍️ handleNewDeliveryOrder called");
+    // Cerrar selección de mesas y mostrar pantalla de orden
+    setSelectedTable(null);
+    setShowTableSelection(false);
+    
+    // Mostrar dialog para pedir nombre del cliente
+    setShowCustomerNameDialog(true);
+  }
+
+  function handleConfirmCustomerName() {
+    if (!customerName.trim()) {
+      toast.error("Por favor ingresa el nombre del cliente");
+      return;
+    }
+    
+    setShowCustomerNameDialog(false);
+    toast.success(`Orden Para Llevar - ${customerName}`);
+  }
+
+  async function handleSelectDeliveryOrder(order: Order) {
+    setSelectedTable(null);
+    setShowTableSelection(false);
+    setCustomerName(order.customerName || "");
+    
+    // Cargar items de la orden al carrito
+    try {
+      const items = order.items?.map((item: any) => ({
+        productId: item.productId,
+        productName: item.productName,
+        unitPrice: parseFloat(item.unitPrice),
+        quantity: item.quantity,
+        notes: item.notes || "",
+        frostingId: item.frostingId,
+        frostingName: item.frostingName,
+        dryToppingId: item.dryToppingId,
+        dryToppingName: item.dryToppingName,
+        extraId: item.extraId,
+        extraName: item.extraName,
+        customModifiers: item.customModifiers,
+        sentToKitchen: order.status === "preparing" || order.status === "ready" || order.status === "delivered",
+        orderStatus: order.status,
+        orderId: order.id,
+        itemId: item.id,
+        deliveredToTable: item.deliveredToTable || false,
+      })) || [];
+      
+      setCart(items);
+      setCurrentOrderId(order.id);
+      toast.success(`Orden Para Llevar - ${order.customerName || `#${order.orderNumber}`} cargada`);
+    } catch (error) {
+      console.error('Error loading delivery order:', error);
+      toast.error("Error cargando orden");
+    }
+  }
+
+  async function handleMarkAsDelivered(index: number) {
+    const item = cart[index];
+    if (!item.itemId) {
+      toast.error("No se puede marcar este item");
+      return;
+    }
+    
+    try {
+      // Actualizar deliveredToTable en BD
+      const res = await fetch(`/api/order-items/${item.itemId}/delivered`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deliveredToTable: true }),
+      });
+      
+      if (!res.ok) throw new Error();
+      
+      // Actualizar en estado local
+      const updatedCart = [...cart];
+      updatedCart[index] = {
+        ...updatedCart[index],
+        deliveredToTable: true,
+      };
+      
+      setCart(updatedCart);
+      toast.success("Platillo marcado como entregado");
+    } catch (error) {
+      console.error('Error marking as delivered:', error);
+      toast.error("Error al marcar como entregado");
+    }
+  }
+
+  async function handleReleaseTable() {
+    const orderType = selectedTable ? `Mesa ${selectedTable.number}` : `Orden Para Llevar - ${customerName}`;
+    
+    // Confirmar si hay items en el carrito
+    if (cart.length > 0) {
+      const confirmed = window.confirm(
+        `¿Liberar ${orderType}?\n\nHay ${cart.length} items en el carrito que se perderán.`
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      // Si hay mesa, cancelar todas las órdenes activas de la mesa
+      if (selectedTable) {
+        console.log("🗑️ Liberando mesa:", selectedTable.id);
+        
+        // Buscar todas las órdenes activas de esta mesa
+        const ordersRes = await fetch(`/api/orders?tableId=${selectedTable.id}&status=preparing,ready,pending,delivered`);
+        if (ordersRes.ok) {
+          const orders = await ordersRes.json();
+          console.log(`📦 Órdenes a cancelar: ${orders.length}`, orders);
+          
+          // Cancelar cada orden
+          for (const order of orders) {
+            console.log(`❌ Cancelando orden ${order.id}`);
+            const cancelRes = await fetch(`/api/orders/${order.id}/status`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "cancelled" }),
+            });
+            console.log(`✅ Orden ${order.id} cancelada:`, cancelRes.ok);
+          }
+        } else {
+          console.error("❌ Error buscando órdenes:", ordersRes.status);
+        }
+        
+        // Actualizar estado de mesa a "available"
+        const res = await fetch(`/api/tables/${selectedTable.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...selectedTable,
+            status: "available",
+          }),
+        });
+
+        if (!res.ok) throw new Error();
+      }
+      
+      // Si hay orden creada (Para Llevar con items enviados a cocina), marcarla como cancelada
+      if (currentOrderId && !selectedTable) {
+        await fetch(`/api/orders/${currentOrderId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "cancelled" }),
+        });
+      }
+
+      toast.success(`${orderType} liberada`);
+      
+      // Volver a selección de mesas
+      setShowTableSelection(true);
+      setSelectedTable(null);
+      setCart([]);
+      setCurrentOrderId(null);
+      setCustomerName("");
+      
+      // Recargar mesas y delivery orders
+      fetchTables();
+      fetchDeliveryOrders();
+    } catch (error) {
+      toast.error("Error liberando orden");
+    }
+  }
+
+  async function handleSendToKitchen() {
+    console.log("🍳 handleSendToKitchen called");
+    
+    // Verificar que hay items pendientes de enviar
+    const pendingItems = cart.filter(item => !item.sentToKitchen);
+    
+    if (pendingItems.length === 0) {
+      toast.error("No hay items pendientes para enviar a cocina");
+      return;
+    }
+
+    const itemsData = pendingItems.map(item => ({
+      productId: item.productId,
+      productName: item.productName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      notes: item.notes || "",
+      frostingId: item.frostingId || null,
+      frostingName: item.frostingName || null,
+      dryToppingId: item.dryToppingId || null,
+      dryToppingName: item.dryToppingName || null,
+      extraId: item.extraId || null,
+      extraName: item.extraName || null,
+      customModifiers: item.customModifiers || null,
+    }));
+
+    try {
+      let orderId = currentOrderId;
+
+      if (currentOrderId) {
+        // Ya existe una orden - agregar items a la orden existente
+        console.log("➕ Agregando items a orden existente:", currentOrderId);
+        const res = await fetch(`/api/orders/${currentOrderId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: itemsData }),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Error adding items");
+        }
+
+        const updatedOrder = await res.json();
+        console.log("✅ Items agregados a orden:", updatedOrder.id);
+      } else {
+        // No hay orden - crear una nueva
+        console.log("🆕 Creando nueva orden");
+        const orderData = {
+          tableId: selectedTable?.id || null,
+          items: itemsData,
+          status: "preparing",
+          paymentMethod: null,
+          loyaltyCardId: null,
+          customerName: customerName || null,
+        };
+
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(orderData),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Error creating order");
+        }
+
+        const createdOrder = await res.json();
+        console.log("✅ Orden creada:", createdOrder.id);
+        orderId = createdOrder.id;
+        setCurrentOrderId(createdOrder.id);
+        
+        // Actualizar estado de la mesa a "occupied" solo si hay mesa seleccionada
+        if (selectedTable) {
+          await fetch(`/api/tables/${selectedTable.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...selectedTable,
+              status: "occupied",
+            }),
+          });
+        }
+      }
+
+      // Marcar items como enviados a cocina en el carrito local
+      const updatedCart = cart.map(item => 
+        item.sentToKitchen ? item : { ...item, sentToKitchen: true, orderId: orderId || undefined }
+      );
+      setCart(updatedCart);
+      
+      const orderType = selectedTable ? `Mesa ${selectedTable.number}` : "Para Llevar";
+      toast.success(`${pendingItems.length} items enviados a cocina (${orderType})`);
+      
+      // Recargar órdenes delivery si es Para Llevar
+      if (!selectedTable) {
+        fetchDeliveryOrders();
+      }
+    } catch (error) {
+      toast.error("Error enviando a cocina");
+      console.error("Error:", error);
+    }
+  }
+
   async function fetchData() {
     try {
       const [productsRes, categoriesRes, frostingsRes, toppingsRes, extrasRes] = await Promise.all([
@@ -315,24 +734,16 @@ export default function BarPage() {
     }
   }
 
-  // Iniciar flujo de modificadores
+  // Agregar producto directamente al carrito (flujo simplificado)
   function handleProductClick(product: Product) {
-    setSelectedProduct(product);
-    setStepSelections({});
-    setSelectedFrosting(null);
-    setSelectedTopping(null);
-    setSelectedExtras([]);
-    
-    // Iniciar en el primer paso del flujo
-    if (categoryFlow && categoryFlow.steps.length > 0) {
-      setCurrentStepIndex(0);
-    } else {
-      // Sin flujo configurado, ir directo al carrito
-      addToCartDirectly(product);
+    // Si el producto tiene variantes, mostrar dialog de selección
+    if (product.hasVariants && product.variants) {
+      setSelectedProductForVariant(product);
+      setShowVariantDialog(true);
+      return;
     }
-  }
 
-  function addToCartDirectly(product: Product) {
+    // Si no tiene variantes, agregar directo al carrito
     const newItem: CartItem = {
       productId: product.id,
       productName: product.name,
@@ -349,6 +760,38 @@ export default function BarPage() {
     };
     setCart([...cart, newItem]);
     toast.success(`${product.name} agregado`);
+  }
+
+  // Agregar producto con variante seleccionada
+  function handleAddVariant(variantName: string, variantPrice: string) {
+    if (!selectedProductForVariant) return;
+
+    const newItem: CartItem = {
+      productId: selectedProductForVariant.id,
+      productName: `${selectedProductForVariant.name} - ${variantName}`,
+      unitPrice: parseFloat(variantPrice),
+      quantity: 1,
+      notes: "",
+      frostingId: undefined,
+      frostingName: undefined,
+      dryToppingId: undefined,
+      dryToppingName: undefined,
+      extraId: undefined,
+      extraName: undefined,
+      customModifiers: null,
+    };
+    setCart([...cart, newItem]);
+    toast.success(`${selectedProductForVariant.name} - ${variantName} agregado`);
+    setShowVariantDialog(false);
+    setSelectedProductForVariant(null);
+  }
+
+  // Abrir dialog de personalización para un item del carrito
+  function handleCustomizeItem(index: number) {
+    const item = cart[index];
+    setSelectedProduct(products.find(p => p.id === item.productId) || null);
+    setProductNotes(item.notes || "");
+    // Aquí podrías abrir un dialog de personalización si lo necesitas
   }
 
   function handleStepSelection(selection: any) {
@@ -474,6 +917,12 @@ export default function BarPage() {
     const item = cart[index];
     if (!item) return;
 
+    // No permitir editar items enviados a cocina
+    if (item.sentToKitchen) {
+      toast.error("No se puede modificar un item ya enviado a cocina");
+      return;
+    }
+
     const newQty = item.quantity + delta;
     if (newQty <= 0) {
       removeFromCart(index);
@@ -485,6 +934,14 @@ export default function BarPage() {
   }
 
   function removeFromCart(index: number) {
+    const item = cart[index];
+    
+    // No permitir eliminar items enviados a cocina
+    if (item && item.sentToKitchen) {
+      toast.error("No se puede eliminar un item ya enviado a cocina");
+      return;
+    }
+    
     setCart(cart.filter((_, i) => i !== index));
   }
 
@@ -785,35 +1242,69 @@ export default function BarPage() {
       toast.error("No hay empleado autenticado");
       return;
     }
+    // Validar que haya mesa O nombre de cliente (Para Llevar)
+    if (!selectedTable && !customerName) {
+      toast.error("No hay mesa ni cliente seleccionado");
+      return;
+    }
 
+    // Si ya existe una orden (items fueron enviados a cocina), usar esa orden para cobrar
+    if (currentOrderId) {
+      console.log("💰 Usando orden existente para cobrar:", currentOrderId);
+      // Ir directo a pago sin crear nueva orden
+      if (loyaltyCard) {
+        setShowingPayment(true);
+      } else {
+        setShowingLoyaltyStep(true);
+      }
+      return;
+    }
+
+    // Solo crear nueva orden si no hay una existente (items no enviados a cocina)
     setSubmitting(true);
     try {
+      const orderData = {
+        items: cart.map((item) => ({
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          notes: item.notes,
+          frostingId: item.frostingId,
+          frostingName: item.frostingName,
+          dryToppingId: item.dryToppingId,
+          dryToppingName: item.dryToppingName,
+          extraId: item.extraId,
+          extraName: item.extraName,
+          customModifiers: item.customModifiers,
+        })),
+        employeeId,
+        tableId: selectedTable?.id || null, // null para Para Llevar
+        paymentStatus: "pending",
+        loyaltyCardId: loyaltyCard?.id || null,
+        customerName: customerName || loyaltyCard?.customerName || null,
+      };
+
+      const orderType = selectedTable ? `Mesa ${selectedTable.number}` : `Para Llevar - ${customerName}`;
+      console.log("📦 Creando orden para", orderType);
+      
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: cart.map((item) => ({
-            productId: item.productId,
-            productName: item.productName,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            notes: item.notes,
-            frostingId: item.frostingId,
-            frostingName: item.frostingName,
-            dryToppingId: item.dryToppingId,
-            dryToppingName: item.dryToppingName,
-            extraId: item.extraId,
-            extraName: item.extraName,
-            customModifiers: item.customModifiers,
-          })),
-          employeeId,
-          paymentStatus: "pending",
-          loyaltyCardId: loyaltyCard?.id || null,
-        }),
+        body: JSON.stringify(orderData),
       });
 
       if (!res.ok) throw new Error();
       const order = await res.json();
+      
+      // Actualizar estado de mesa a "occupied" solo si hay mesa
+      if (selectedTable) {
+        await fetch(`/api/tables/${selectedTable.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "occupied" }),
+        });
+      }
       
       setCurrentOrderId(order.id);
       // Si ya tiene cliente frecuente, ir directo a pago, si no, mostrar paso de loyalty
@@ -822,7 +1313,7 @@ export default function BarPage() {
       } else {
         setShowingLoyaltyStep(true);
       }
-      toast.success("Orden creada");
+      toast.success(`Orden creada para ${orderType}`);
     } catch (error) {
       toast.error("Error creando orden");
     } finally {
@@ -883,33 +1374,31 @@ export default function BarPage() {
     }
   }
 
-  async function handleConfirmOrder() {
-    if (!currentOrderId) return;
-    setConfirmingOrder(true);
-    try {
-      const res = await fetch(`/api/orders/${currentOrderId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "preparing" }),
-      });
-      
-      if (!res.ok) throw new Error();
-      
-      toast.success("Orden enviada a cocina");
-      
-      // Limpiar todo y volver a la vista de productos
-      setCart([]);
-      setLoyaltyCard(null);
-      setShowingPayment(false);
-      setPaymentMethod(null);
-      setCashReceived("");
-      setCurrentOrderId(null);
-      setPaymentCompleted(false);
-    } catch {
-      toast.error("Error confirmando orden");
-    } finally {
-      setConfirmingOrder(false);
-    }
+  function handleConfirmOrder() {
+    // El pago ya marcó la orden como delivered y liberó la mesa automáticamente
+    // Solo necesitamos limpiar la UI y volver a selección de mesas
+    
+    const orderType = selectedTable ? "Mesa liberada" : "Orden Para Llevar completada";
+    toast.success(`Orden completada - ${orderType}`);
+    
+    // Limpiar todo y volver a selección de mesas
+    setCart([]);
+    setLoyaltyCard(null);
+    setShowingPayment(false);
+    setShowingLoyaltyStep(false);
+    setPaymentMethod(null);
+    setCashReceived("");
+    setCurrentOrderId(null);
+    setPaymentCompleted(false);
+    setSelectedTable(null);
+    setCustomerName("");
+    setShowTableSelection(true);
+    
+    // Recargar delivery orders para quitar la orden completada
+    fetchDeliveryOrders();
+    
+    // Recargar mesas para actualizar estados
+    fetchTables();
   }
 
   async function handlePayTerminal() {
@@ -939,23 +1428,48 @@ export default function BarPage() {
         return;
       }
 
-      // Poll for payment status
+      // Poll order status - webhook updates paymentStatus to "paid"
       const pollInterval = setInterval(async () => {
-        const statusRes = await fetch(`/api/orders/${currentOrderId}`);
-        if (statusRes.ok) {
-          const updatedOrder = await statusRes.json();
-          if (updatedOrder.paymentStatus === "paid") {
-            clearInterval(pollInterval);
-            setWaitingForTerminal(false);
-            toast.success("Pago confirmado por terminal");
-            setPaymentCompleted(true);
-            setProcessing(false);
-          } else if (updatedOrder.paymentStatus === "failed") {
-            clearInterval(pollInterval);
-            setWaitingForTerminal(false);
-            setProcessing(false);
-            toast.error("Pago rechazado en terminal");
+        try {
+          const statusRes = await fetch(`/api/orders/${currentOrderId}`);
+          if (statusRes.ok) {
+            const updatedOrder = await statusRes.json();
+            
+            if (updatedOrder.paymentStatus === "paid") {
+              clearInterval(pollInterval);
+              
+              // Webhook puede poner status incorrecto - asegurar que sea "delivered"
+              if (updatedOrder.status !== "delivered") {
+                console.log("🔧 Corrigiendo status a delivered después de pago terminal");
+                await fetch(`/api/orders/${currentOrderId}/status`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ status: "delivered" }),
+                });
+              }
+              
+              // Liberar mesa si es necesario
+              if (selectedTable) {
+                await fetch(`/api/tables/${selectedTable.id}`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ...selectedTable, status: "available" }),
+                });
+              }
+              
+              setWaitingForTerminal(false);
+              toast.success("Pago confirmado por terminal");
+              setPaymentCompleted(true);
+              setProcessing(false);
+            } else if (updatedOrder.paymentStatus === "failed") {
+              clearInterval(pollInterval);
+              setWaitingForTerminal(false);
+              setProcessing(false);
+              toast.error("Pago rechazado en terminal");
+            }
           }
+        } catch (err) {
+          console.error("Error polling order:", err);
         }
       }, 2000);
 
@@ -1202,6 +1716,124 @@ export default function BarPage() {
     );
   }
 
+  // Vista de selección de mesas
+  if (showTableSelection) {
+    return (
+      <div className="flex h-screen bg-background">
+        <div className="flex-1 p-8">
+          <div className="mb-8">
+            <h1 className="text-4xl font-bold mb-2">BRUMA Marisquería</h1>
+            <p className="text-muted-foreground">Selecciona una mesa para comenzar</p>
+          </div>
+
+          <div className="grid grid-cols-5 gap-4">
+            {/* Opción Nueva Orden Para Llevar */}
+            <Card
+              className="cursor-pointer transition-all bg-blue-500/10 border-blue-500 hover:bg-blue-500/20"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNewDeliveryOrder();
+              }}
+            >
+              <CardContent className="p-6 text-center">
+                <div className="text-3xl font-bold mb-2">
+                  🛍️
+                </div>
+                <div className="text-sm font-semibold mb-1">
+                  Para Llevar
+                </div>
+                <div className="text-xs text-muted-foreground mb-2">
+                  Nueva Orden
+                </div>
+                <Badge variant="default" className="text-xs bg-blue-600">
+                  + Nuevo
+                </Badge>
+              </CardContent>
+            </Card>
+
+            {/* Órdenes Para Llevar Activas */}
+            {deliveryOrders.map((order, index) => (
+              <Card
+                key={order.id}
+                className="cursor-pointer transition-all bg-green-500/10 border-green-500 hover:bg-green-500/20"
+                onClick={() => handleSelectDeliveryOrder(order)}
+              >
+                <CardContent className="p-6 text-center">
+                  <div className="text-3xl font-bold mb-2">
+                    �
+                  </div>
+                  <div className="text-sm font-semibold mb-1">
+                    {order.customerName || `Delivery ${index + 1}`}
+                  </div>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    Orden #{order.orderNumber}
+                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {order.items?.length || 0} items
+                  </Badge>
+                </CardContent>
+              </Card>
+            ))}
+
+            {/* Mesas */}
+            {tables.map((table) => {
+              const statusColors = {
+                available: "bg-green-500/10 border-green-500 hover:bg-green-500/20",
+                occupied: "bg-red-500/10 border-red-500 hover:bg-red-500/20",
+                reserved: "bg-yellow-500/10 border-yellow-500 hover:bg-yellow-500/20",
+              };
+
+              const statusLabels = {
+                available: "Disponible",
+                occupied: "Ocupada",
+                reserved: "Reservada",
+              };
+
+              return (
+                <Card
+                  key={table.id}
+                  className={`cursor-pointer transition-all ${statusColors[table.status]}`}
+                  onClick={() => handleSelectTable(table)}
+                >
+                  <CardContent className="p-6 text-center">
+                    <div className="text-3xl font-bold mb-2">
+                      {table.number}
+                    </div>
+                    <div className="text-sm text-muted-foreground mb-1">
+                      {table.name || `Mesa ${table.number}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-2">
+                      {table.capacity} {table.capacity === 1 ? "persona" : "personas"}
+                    </div>
+                    <div className="flex-1 flex-col gap-1">
+                      <Badge
+                        variant={table.status === "available" ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {statusLabels[table.status]}
+                      </Badge>
+                      {tablesWithReadyItems.has(table.id) && (
+                        <Badge variant="default" className="text-xs bg-green-600 animate-pulse">
+                          ✓ Platillos listos
+                        </Badge>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          <div className="mt-8 flex justify-end">
+            <Button variant="outline" onClick={() => router.push("/dashboard")}>
+              Volver al Dashboard
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Filtrar productos por categoría o búsqueda
   const filteredProducts = searchQuery
     ? products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase())) // Buscar en todas las categorías
@@ -1215,6 +1847,47 @@ export default function BarPage() {
       <div className="w-80 bg-card border-r flex flex-col">
         {/* Header del carrito */}
         <div className="p-4 border-b">
+          {(selectedTable || customerName) && (
+            <div className="mb-3 p-2 bg-primary/10 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  {selectedTable ? (
+                    <>
+                      <div className="font-semibold text-sm">Mesa {selectedTable.number}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {selectedTable.name || `Mesa ${selectedTable.number}`}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-semibold text-sm">� Para Llevar</div>
+                      <div className="text-xs text-muted-foreground">
+                        {customerName || "Sin nombre"}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleChangeTable}
+                    className="text-xs"
+                  >
+                    Cambiar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleReleaseTable}
+                    className="text-xs text-destructive hover:text-destructive"
+                  >
+                    Liberar
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-semibold">Orden</h2>
             <div className="flex items-center gap-2">
@@ -1239,11 +1912,21 @@ export default function BarPage() {
             </div>
           </div>
           {loyaltyCard && (
-            <div className="mb-2 p-2 bg-primary/10 rounded text-sm">
-              <div className="font-medium">{loyaltyCard.customerName}</div>
-              <div className="text-xs text-muted-foreground">
-                {loyaltyCard.stamps} sellos • {loyaltyCard.rewardsAvailable} recompensas
+            <div className="mb-2 p-2 bg-primary/10 rounded text-sm flex items-start justify-between gap-2">
+              <div className="flex-1">
+                <div className="font-medium">{loyaltyCard.customerName}</div>
+                <div className="text-xs text-muted-foreground">
+                  {loyaltyCard.stamps} sellos • {loyaltyCard.rewardsAvailable} recompensas
+                </div>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLoyaltyCard(null)}
+                className="h-6 w-6 p-0"
+              >
+                <X className="size-4" />
+              </Button>
             </div>
           )}
           <div className="text-sm text-muted-foreground">
@@ -1259,85 +1942,139 @@ export default function BarPage() {
             </div>
           ) : (
             cart.map((item, index) => (
-              <div key={index} className="bg-muted rounded-lg p-3">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <div className="font-medium text-sm">{item.productName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatCurrency(item.unitPrice)} c/u
-                    </div>
-                    {/* Resumen de modificadores */}
-                    {(item.frostingName || item.dryToppingName || item.extraName || item.customModifiers) && (
-                      <div className="mt-1 space-y-0.5">
-                        {item.frostingName && (
-                          <div className="text-xs text-muted-foreground">
-                            • Escarchado: {item.frostingName}
-                          </div>
+              <div key={index} className={`rounded-lg overflow-hidden ${item.sentToKitchen ? 'bg-gray-900 border-1 border-gray-800' : 'bg-muted'}`}>
+                <div className={`p-3 ${item.sentToKitchen ? 'opacity-75' : ''}`}>
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="font-medium text-sm">{item.productName}</div>
+                        {item.sentToKitchen && item.orderStatus === "ready" && !item.deliveredToTable && (
+                          <Badge variant="default" className="text-xs bg-green-600">
+                            ✓ Listo para mesa
+                          </Badge>
                         )}
-                        {item.dryToppingName && (
-                          <div className="text-xs text-muted-foreground">
-                            • Topping: {item.dryToppingName}
-                          </div>
+                        {item.sentToKitchen && item.deliveredToTable && (
+                          <Badge variant="secondary" className="text-xs bg-blue-600">
+                            ✓ Entregado
+                          </Badge>
                         )}
-                        {item.extraName && (
-                          <div className="text-xs text-muted-foreground">
-                            • Extra: {item.extraName}
-                          </div>
+                        {item.sentToKitchen && item.orderStatus === "preparing" && (
+                          <Badge variant="destructive" className="text-xs">
+                            En cocina
+                          </Badge>
                         )}
-                        {item.customModifiers && (() => {
-                          try {
-                            const modifiers = JSON.parse(item.customModifiers);
-                            return Object.values(modifiers).map((mod: any, idx: number) => (
-                              <div key={idx} className="text-xs text-muted-foreground">
-                                • {mod.stepName}: {mod.options.map((opt: any) => opt.name).join(', ')}
-                              </div>
-                            ));
-                          } catch (e) {
-                            return null;
-                          }
-                        })()}
                       </div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatCurrency(item.unitPrice)} c/u
+                      </div>
+                      {/* Resumen de modificadores */}
+                      {(item.frostingName || item.dryToppingName || item.extraName || item.customModifiers) && (
+                        <div className="mt-1 space-y-0.5">
+                          {item.frostingName && (
+                            <div className="text-xs text-muted-foreground">
+                              • Escarchado: {item.frostingName}
+                            </div>
+                          )}
+                          {item.dryToppingName && (
+                            <div className="text-xs text-muted-foreground">
+                              • Topping: {item.dryToppingName}
+                            </div>
+                          )}
+                          {item.extraName && (
+                            <div className="text-xs text-muted-foreground">
+                              • Extra: {item.extraName}
+                            </div>
+                          )}
+                          {item.customModifiers && (() => {
+                            try {
+                              const modifiers = JSON.parse(item.customModifiers);
+                              return Object.values(modifiers).map((mod: any, idx: number) => (
+                                <div key={idx} className="text-xs text-muted-foreground">
+                                  • {mod.stepName}: {mod.options.map((opt: any) => opt.name).join(', ')}
+                                </div>
+                              ));
+                            } catch (e) {
+                              return null;
+                            }
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                    {!item.sentToKitchen && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeFromCart(index)}
+                      >
+                        <Trash className="size-4 text-destructive" />
+                      </Button>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeFromCart(index)}
-                  >
-                    <Trash className="size-4 text-destructive" />
-                  </Button>
+                  <div className="flex items-center justify-between">
+                    {!item.sentToKitchen ? (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateQuantity(index, -1)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Minus className="size-3" />
+                        </Button>
+                        <span className="font-semibold w-8 text-center">{item.quantity}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateQuantity(index, 1)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Plus className="size-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        Cantidad: {item.quantity}
+                      </div>
+                    )}
+                    <span className="font-semibold">
+                      {formatCurrency(item.unitPrice * item.quantity)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                
+                {/* Footer para items ready no entregados */}
+                {item.sentToKitchen && item.orderStatus === "ready" && !item.deliveredToTable && (
+                  <div className="bg-gray-800 p-2 opacity-100">
                     <Button
-                      variant="outline"
+                      onClick={() => handleMarkAsDelivered(index)}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white border-0 font-semibold shadow-lg"
                       size="sm"
-                      onClick={() => updateQuantity(index, -1)}
-                      className="h-8 w-8 p-0"
                     >
-                      <Minus className="size-3" />
-                    </Button>
-                    <span className="font-semibold w-8 text-center">{item.quantity}</span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => updateQuantity(index, 1)}
-                      className="h-8 w-8 p-0"
-                    >
-                      <Plus className="size-3" />
+                      <span className="mr-2">✓</span>
+                      Marcar como entregado a mesa
                     </Button>
                   </div>
-                  <span className="font-semibold">
-                    {formatCurrency(item.unitPrice * item.quantity)}
-                  </span>
-                </div>
+                )}
               </div>
             ))
           )}
         </div>
 
-        {/* Footer - botón cobrar */}
-        <div className="p-4 border-t">
+        {/* Footer - botones de acción */}
+        <div className="p-4 border-t space-y-2">
+          {/* Botón Enviar a Cocina */}
+          {cart.some(item => !item.sentToKitchen) && (
+            <Button
+              onClick={handleSendToKitchen}
+              disabled={cart.length === 0}
+              className="w-full bg-orange-600 hover:bg-orange-700"
+              size="lg"
+            >
+              Enviar a Cocina ({cart.filter(item => !item.sentToKitchen).length})
+            </Button>
+          )}
+          
+          {/* Botón Cobrar */}
           <Button
             onClick={handleCheckout}
             disabled={cart.length === 0 || submitting}
@@ -1467,7 +2204,7 @@ export default function BarPage() {
 
                 <div>
                   <p className="text-center text-sm text-muted-foreground mb-4">
-                    Desliza para confirmar y enviar a cocina
+                    Desliza para confirmar y liberar mesa
                   </p>
                   <SlideToConfirm onConfirm={handleConfirmOrder} disabled={confirmingOrder} />
                 </div>
@@ -1705,7 +2442,7 @@ export default function BarPage() {
                             alt={product.name}
                             className="w-full h-full object-cover"
                           />
-                          <div className="absolute inset-0 bg-black/60" />
+                          <div className="absolute inset-0 bg-black/70" />
                         </div>
                       ) : (
                         <div className="absolute inset-0 bg-muted" />
@@ -1905,6 +2642,71 @@ export default function BarPage() {
         </>
       )}
 
+      {/* Dialog de Selección de Variantes */}
+      <Dialog open={showVariantDialog} onOpenChange={setShowVariantDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedProductForVariant?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Selecciona una opción:
+            </p>
+            {selectedProductForVariant?.variants && JSON.parse(selectedProductForVariant.variants).map((variant: any, index: number) => (
+              <Button
+                key={index}
+                variant="outline"
+                className="w-full justify-between h-auto py-4"
+                onClick={() => handleAddVariant(variant.name, variant.price)}
+              >
+                <span className="font-semibold">{variant.name}</span>
+                <span className="text-lg">{formatCurrency(parseFloat(variant.price))}</span>
+              </Button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVariantDialog(false)}>
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Nombre de Cliente Para Llevar */}
+      <Dialog open={showCustomerNameDialog} onOpenChange={setShowCustomerNameDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Orden Para Llevar</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nombre del Cliente</Label>
+              <Input
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Ej: Juan Pérez"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleConfirmCustomerName();
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCustomerNameDialog(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleConfirmCustomerName}>
+              Continuar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog Leer QR */}
       <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
         <DialogContent>
@@ -1929,7 +2731,7 @@ export default function BarPage() {
 
             {/* Video Preview */}
             {cameraActive ? (
-              <div className="relative rounded-lg overflow-hidden bg-black border-2 border-green-500" style={{ minHeight: '256px' }}>
+              <div className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: '256px' }}>
                 <video
                   ref={videoRef}
                   autoPlay
@@ -1944,10 +2746,6 @@ export default function BarPage() {
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="absolute inset-0 border-2 border-primary/50 pointer-events-none">
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border-2 border-primary rounded-lg" />
-                </div>
-                {/* Indicador de cámara activa */}
-                <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">
-                  🔴 EN VIVO
                 </div>
               </div>
             ) : (

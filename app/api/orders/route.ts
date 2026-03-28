@@ -7,23 +7,53 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
+    const tableId = searchParams.get("tableId");
+    const noTable = searchParams.get("noTable") === "true";
     const limit = parseInt(searchParams.get("limit") || "50");
 
-    let whereClause;
+    console.log("🔍 GET /api/orders - Params:", { status, tableId, noTable, limit });
+
+    const whereClauses = [];
+    
     if (status) {
       const statuses = status.split(",") as ("pending" | "preparing" | "ready" | "delivered" | "cancelled")[];
+      console.log("📊 Filtrando por statuses:", statuses);
       if (statuses.length === 1) {
-        whereClause = eq(orders.status, statuses[0]);
+        whereClauses.push(eq(orders.status, statuses[0]));
       } else {
-        whereClause = inArray(orders.status, statuses);
+        whereClauses.push(inArray(orders.status, statuses));
       }
     }
+    
+    if (tableId) {
+      console.log("🏓 Filtrando por tableId:", tableId);
+      whereClauses.push(eq(orders.tableId, tableId));
+    }
+    
+    if (noTable) {
+      console.log("📦 Filtrando órdenes sin mesa");
+      whereClauses.push(sql`${orders.tableId} IS NULL`);
+    }
+
+    const whereClause = whereClauses.length > 0 
+      ? whereClauses.length === 1 
+        ? whereClauses[0] 
+        : and(...whereClauses)
+      : undefined;
 
     const result = await db.query.orders.findMany({
       where: whereClause,
-      with: { items: true },
+      with: { 
+        items: true,
+        table: true, // Incluir información de la mesa
+      },
       orderBy: [desc(orders.createdAt)],
       limit,
+    });
+
+    console.log("✅ Órdenes encontradas:", result.length);
+    result.forEach(order => {
+      console.log(`  - Orden ${order.id}: status=${order.status}, tableId=${order.tableId}, items=${order.items?.length || 0}`);
     });
 
     return NextResponse.json(result);
@@ -36,7 +66,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { items, customerName, notes } = body;
+    const { items, customerName, notes, status: orderStatus, tableId, paymentMethod, loyaltyCardId } = body;
+
+    console.log("📦 API recibió orden:", { customerName, orderStatus, tableId });
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "Items required" }, { status: 400 });
@@ -72,9 +104,12 @@ export async function POST(request: NextRequest) {
         total: total.toFixed(2),
         customerName: customerName || null,
         notes: notes || null,
+        tableId: tableId || null,
         cashRegisterId: currentRegister?.id || null,
-        status: "pending",
+        status: orderStatus || "pending", // Respetar el status enviado
         paymentStatus: "pending",
+        paymentMethod: paymentMethod || null,
+        loyaltyCardId: loyaltyCardId || null,
       })
       .returning();
 

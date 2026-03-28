@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
   orders,
+  tables,
   cashRegisters,
   cashRegisterTransactions,
   loyaltyCards,
@@ -10,7 +11,7 @@ import {
   ingredients,
   orderItems,
 } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, inArray } from "drizzle-orm";
 
 export async function POST(
   request: NextRequest,
@@ -81,18 +82,42 @@ export async function POST(
         );
       }
     } else {
-      // Cash or Transfer payment - mark as paid but keep status as pending (will change to preparing after confirmation)
+      // Cash or Transfer payment - mark as paid and delivered
+      console.log(`💰 Marcando orden ${id} como paid + delivered`);
       await db
         .update(orders)
         .set({
           paymentMethod: paymentMethod, // "cash" or "transfer"
           paymentStatus: "paid",
-          // status stays "pending" - will be changed to "preparing" after slide button confirmation
+          status: "delivered", // Mark as delivered so it doesn't reappear when reopening the table
           loyaltyCardId: loyaltyCardId || null,
           userId: userId || null,
           updatedAt: new Date(),
         })
         .where(eq(orders.id, id));
+
+      // Si la orden tiene mesa, marcar TODAS las órdenes activas de esa mesa como delivered y liberar mesa
+      if (order.tableId) {
+        console.log(`🏓 Liberando mesa ${order.tableId} - marcando todas las órdenes activas como delivered`);
+        await db
+          .update(orders)
+          .set({
+            status: "delivered",
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(orders.tableId, order.tableId),
+              inArray(orders.status, ["pending", "preparing", "ready"])
+            )
+          );
+
+        await db
+          .update(tables)
+          .set({ status: "available" })
+          .where(eq(tables.id, order.tableId));
+        console.log(`✅ Mesa ${order.tableId} liberada`);
+      }
     }
 
     // Record cash register transaction

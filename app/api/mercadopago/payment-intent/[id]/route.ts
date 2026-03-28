@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { orders, mercadopagoDevices } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { orders, tables, mercadopagoDevices } from "@/lib/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
@@ -47,17 +47,39 @@ export async function GET(
         where: eq(orders.mercadopagoPaymentIntentId, paymentIntentId),
       });
 
-      if (order && order.paymentStatus !== "paid") {
-        console.log(`[MP] Updating order ${order.id} to paid`);
+      if (order && order.status !== "delivered") {
+        // SIEMPRE marcar como delivered si el pago está FINISHED, sin importar si el webhook ya actualizó paymentStatus
+        console.log(`[MP Intent] Orden ${order.id}: status=${order.status}, paymentStatus=${order.paymentStatus} → marcando como delivered`);
         await db
           .update(orders)
           .set({
             paymentStatus: "paid",
-            status: "preparing",
+            status: "delivered",
             mercadopagoPaymentId: intentData.payment.id.toString(),
             updatedAt: new Date(),
           })
           .where(eq(orders.id, order.id));
+
+        // Si la orden tiene mesa, marcar TODAS las órdenes activas de esa mesa como delivered y liberar
+        if (order.tableId) {
+          await db
+            .update(orders)
+            .set({ status: "delivered", updatedAt: new Date() })
+            .where(
+              and(
+                eq(orders.tableId, order.tableId),
+                inArray(orders.status, ["pending", "preparing", "ready"])
+              )
+            );
+
+          await db
+            .update(tables)
+            .set({ status: "available" })
+            .where(eq(tables.id, order.tableId));
+          console.log(`✅ Mesa ${order.tableId} liberada`);
+        }
+      } else if (order) {
+        console.log(`[MP Intent] Orden ${order.id} ya está delivered, no se actualiza`);
       }
     }
 

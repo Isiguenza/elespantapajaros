@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { orders } from "@/lib/db/schema";
+import { orders, orderItems } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function GET(
@@ -21,6 +21,26 @@ export async function GET(
     return NextResponse.json(order);
   } catch (error) {
     console.error("Error fetching order:", error);
+    return NextResponse.json({ error: "Error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    
+    // Primero eliminar los items de la orden
+    await db.delete(orderItems).where(eq(orderItems.orderId, id));
+    
+    // Luego eliminar la orden
+    await db.delete(orders).where(eq(orders.id, id));
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting order:", error);
     return NextResponse.json({ error: "Error" }, { status: 500 });
   }
 }

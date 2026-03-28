@@ -7,8 +7,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Espantapájaros POS",
-  description: "Sistema Punto de Venta — Espantapájaros",
+  title: "BRUMA POS",
+  description: "Sistema Punto de Venta — BRUMA Marisquería",
 };
 
 export const viewport: Viewport = {

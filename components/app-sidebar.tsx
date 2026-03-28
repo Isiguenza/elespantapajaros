@@ -25,6 +25,7 @@ import {
   ClockCounterClockwise,
   Storefront,
 } from "@phosphor-icons/react";
+import { BrumaLogo } from "@/components/bruma-logo";
 import {
   Sidebar,
   SidebarContent,
@@ -75,14 +76,14 @@ const inventoryNavItems = [
     icon: Archive,
   },
   {
+    title: "Mesas",
+    url: "/tables",
+    icon: Storefront,
+  },
+  {
     title: "Ingredientes",
     url: "/inventory/ingredients",
     icon: ChefHat,
-  },
-  {
-    title: "Escarchados",
-    url: "/inventory/frostings",
-    icon: Snowflake,
   },
 ];
 
@@ -143,13 +144,11 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="border-b px-6 py-4">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <span className="text-xl font-bold tracking-tight">
-            Espantapájaros
-          </span>
+        <Link href="/dashboard">
+          <BrumaLogo size="sm" />
         </Link>
         <span className="text-xs text-muted-foreground">
-          Punto de Venta
+          Marisquería
         </span>
       </SidebarHeader>
 

@@ -7,6 +7,23 @@ export interface Group {
   createdAt: Date;
 }
 
+export interface Table {
+  id: string;
+  number: string;
+  name: string | null;
+  capacity: number;
+  status: "available" | "occupied" | "reserved";
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  activeOrder?: Order | null;
+}
+
+export interface ProductVariant {
+  name: string;
+  price: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -15,6 +32,8 @@ export interface Product {
   categoryId: string | null;
   groupId: string | null;
   imageUrl: string | null;
+  hasVariants: boolean;
+  variants: string | null; // JSON string de ProductVariant[]
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -127,11 +146,13 @@ export interface Order {
   notes: string | null;
   loyaltyCardId: string | null;
   cashRegisterId: string | null;
+  tableId: string | null;
   createdAt: Date;
   updatedAt: Date;
   items?: OrderItem[];
   payments?: OrderPayment[];
   user?: UserProfile | null;
+  table?: Table | null;
 }
 
 export interface OrderItem {
@@ -180,6 +201,11 @@ export interface CartItem {
   extraId?: string | null | undefined;
   extraName?: string | null | undefined;
   customModifiers?: string | null;
+  sentToKitchen?: boolean; // Items enviados a cocina no se pueden editar
+  orderStatus?: "pending" | "preparing" | "ready" | "delivered" | "cancelled"; // Status de la orden para mostrar badge correcto
+  orderId?: string; // ID de la orden a la que pertenece este item
+  itemId?: string; // ID del order_item en BD
+  deliveredToTable?: boolean; // Si ya fue entregado a la mesa
 }
 
 export interface CashRegister {

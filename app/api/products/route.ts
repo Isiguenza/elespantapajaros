@@ -27,11 +27,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, price, categoryId, imageUrl, active } = body;
+    const { name, description, price, categoryId, imageUrl, hasVariants, variants, active } = body;
 
-    if (!name || !price) {
+    if (!name) {
       return NextResponse.json(
-        { error: "Name and price are required" },
+        { error: "Name is required" },
+        { status: 400 }
+      );
+    }
+
+    // Validar que tenga precio o variantes
+    if (!hasVariants && !price) {
+      return NextResponse.json(
+        { error: "Price is required when product has no variants" },
         { status: 400 }
       );
     }
@@ -41,9 +49,11 @@ export async function POST(request: NextRequest) {
       .values({
         name,
         description: description || null,
-        price,
+        price: price || "0",
         categoryId: categoryId || null,
         imageUrl: imageUrl || null,
+        hasVariants: hasVariants || false,
+        variants: variants || null,
         active: active ?? true,
       })
       .returning();

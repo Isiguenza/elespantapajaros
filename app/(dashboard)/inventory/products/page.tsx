@@ -45,7 +45,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, PencilSimple, Trash, MagnifyingGlass } from "@phosphor-icons/react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, PencilSimple, Trash, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import type { Product, Category, Group } from "@/lib/types";
 
@@ -59,6 +60,11 @@ interface Extra {
   createdAt: string;
 }
 
+interface ProductVariant {
+  name: string;
+  price: string;
+}
+
 interface ProductForm {
   name: string;
   description: string;
@@ -66,6 +72,8 @@ interface ProductForm {
   categoryId: string;
   groupId: string;
   imageUrl: string;
+  hasVariants: boolean;
+  variants: ProductVariant[];
   active: boolean;
 }
 
@@ -76,6 +84,8 @@ const emptyForm: ProductForm = {
   categoryId: "",
   groupId: "",
   imageUrl: "",
+  hasVariants: false,
+  variants: [],
   active: true,
 };
 
@@ -94,6 +104,10 @@ export default function ProductsPage() {
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  
+  // Bulk actions
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
+  const [bulkActionInProgress, setBulkActionInProgress] = useState(false);
 
   // Category dialog
   const [catDialogOpen, setCatDialogOpen] = useState(false);
@@ -135,6 +149,7 @@ export default function ProductsPage() {
   }
 
   function openEditDialog(product: Product) {
+    const variants = product.variants ? JSON.parse(product.variants) : [];
     setForm({
       name: product.name,
       description: product.description || "",
@@ -142,6 +157,8 @@ export default function ProductsPage() {
       categoryId: product.categoryId || "",
       groupId: product.groupId || "",
       imageUrl: product.imageUrl || "",
+      hasVariants: product.hasVariants || false,
+      variants: variants.length > 0 ? variants : [],
       active: product.active,
     });
     setEditingId(product.id);
@@ -175,10 +192,26 @@ export default function ProductsPage() {
   }
 
   async function handleSubmit() {
-    if (!form.name || !form.price) {
-      toast.error("Nombre y precio son requeridos");
+    if (!form.name) {
+      toast.error("El nombre es requerido");
       return;
     }
+
+    // Validar precio o variantes
+    if (!form.hasVariants && !form.price) {
+      toast.error("El precio es requerido");
+      return;
+    }
+
+    if (form.hasVariants) {
+      // Validar que todas las variantes tengan nombre y precio
+      const invalidVariant = form.variants.find(v => !v.name.trim() || !v.price);
+      if (invalidVariant || form.variants.length === 0) {
+        toast.error("Todas las variantes deben tener nombre y precio");
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const url = editingId ? `/api/products/${editingId}` : "/api/products";
@@ -190,6 +223,7 @@ export default function ProductsPage() {
           ...form,
           categoryId: form.categoryId || null,
           groupId: form.groupId || null,
+          variants: form.hasVariants ? JSON.stringify(form.variants) : null,
         }),
       });
       if (!res.ok) throw new Error();
@@ -207,13 +241,97 @@ export default function ProductsPage() {
     if (!deleteId) return;
     try {
       const res = await fetch(`/api/products/${deleteId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Error");
+      }
       toast.success("Producto eliminado");
       fetchData();
-    } catch {
-      toast.error("Error eliminando producto");
+    } catch (error: any) {
+      toast.error(error.message || "Error eliminando producto");
     } finally {
       setDeleteId(null);
+    }
+  }
+
+  // Bulk action functions
+  function toggleProductSelection(productId: string) {
+    const newSelected = new Set(selectedProducts);
+    if (newSelected.has(productId)) {
+      newSelected.delete(productId);
+    } else {
+      newSelected.add(productId);
+    }
+    setSelectedProducts(newSelected);
+  }
+
+  function toggleAllProducts() {
+    if (selectedProducts.size === filtered.length) {
+      setSelectedProducts(new Set());
+    } else {
+      setSelectedProducts(new Set(filtered.map(p => p.id)));
+    }
+  }
+
+  async function handleBulkDeactivate() {
+    if (selectedProducts.size === 0) return;
+    
+    setBulkActionInProgress(true);
+    try {
+      const promises = Array.from(selectedProducts).map(id => {
+        const product = products.find(p => p.id === id);
+        if (!product) return Promise.resolve();
+        
+        return fetch(`/api/products/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...product, active: false }),
+        });
+      });
+      
+      await Promise.all(promises);
+      toast.success(`${selectedProducts.size} productos desactivados`);
+      setSelectedProducts(new Set());
+      fetchData();
+    } catch {
+      toast.error("Error desactivando productos");
+    } finally {
+      setBulkActionInProgress(false);
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedProducts.size === 0) return;
+    
+    setBulkActionInProgress(true);
+    let deleted = 0;
+    let failed = 0;
+    
+    try {
+      for (const id of Array.from(selectedProducts)) {
+        try {
+          const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
+          if (res.ok) {
+            deleted++;
+          } else {
+            failed++;
+          }
+        } catch {
+          failed++;
+        }
+      }
+      
+      if (deleted > 0) {
+        toast.success(`${deleted} productos eliminados`);
+      }
+      if (failed > 0) {
+        toast.error(`${failed} productos no pudieron eliminarse (tienen órdenes asociadas)`);
+      }
+      
+      setSelectedProducts(new Set());
+      fetchData();
+    } finally {
+      setBulkActionInProgress(false);
     }
   }
 
@@ -350,11 +468,59 @@ export default function ProductsPage() {
         />
       </div>
 
+      {/* Barra de acciones en masa */}
+      {selectedProducts.size > 0 && (
+        <Card className="mb-4">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium">
+                  {selectedProducts.size} producto{selectedProducts.size !== 1 ? 's' : ''} seleccionado{selectedProducts.size !== 1 ? 's' : ''}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedProducts(new Set())}
+                >
+                  <X className="size-4 mr-2" />
+                  Cancelar
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkDeactivate}
+                  disabled={bulkActionInProgress}
+                >
+                  Marcar como inactivo
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleBulkDelete}
+                  disabled={bulkActionInProgress}
+                >
+                  <Trash className="size-4 mr-2" />
+                  Eliminar seleccionados
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={filtered.length > 0 && selectedProducts.size === filtered.length}
+                    onCheckedChange={toggleAllProducts}
+                  />
+                </TableHead>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Categoría</TableHead>
                 <TableHead className="text-right">Precio</TableHead>
@@ -365,19 +531,25 @@ export default function ProductsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center">
+                  <TableCell colSpan={6} className="h-32 text-center">
                     Cargando...
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                     No hay productos
                   </TableCell>
                 </TableRow>
               ) : (
                 filtered.map((product) => (
                   <TableRow key={product.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedProducts.has(product.id)}
+                        onCheckedChange={() => toggleProductSelection(product.id)}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div>
                         <p className="font-medium">{product.name}</p>
@@ -529,14 +701,20 @@ export default function ProductsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Precio *</Label>
+                <Label>Precio Base *</Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={form.price}
                   onChange={(e) => setForm({ ...form, price: e.target.value })}
                   placeholder="0.00"
+                  disabled={form.hasVariants}
                 />
+                {form.hasVariants && (
+                  <p className="text-xs text-muted-foreground">
+                    El precio se define en las variantes
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Categoría</Label>
@@ -556,6 +734,76 @@ export default function ProductsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Sección de Variantes */}
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.hasVariants}
+                  onCheckedChange={(v) => {
+                    setForm({ ...form, hasVariants: v, variants: v ? [{ name: "", price: "" }] : [] });
+                  }}
+                />
+                <Label>Este producto tiene variantes de precio</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Ej: Pieza/Orden, Mediano/Grande, Individual/Familiar
+              </p>
+
+              {form.hasVariants && (
+                <div className="space-y-2">
+                  <Label>Variantes</Label>
+                  {form.variants.map((variant, index) => (
+                    <div key={index} className="flex gap-2">
+                      <Input
+                        placeholder="Nombre (ej: Pieza)"
+                        value={variant.name}
+                        onChange={(e) => {
+                          const newVariants = [...form.variants];
+                          newVariants[index].name = e.target.value;
+                          setForm({ ...form, variants: newVariants });
+                        }}
+                        className="flex-1"
+                      />
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="Precio"
+                        value={variant.price}
+                        onChange={(e) => {
+                          const newVariants = [...form.variants];
+                          newVariants[index].price = e.target.value;
+                          setForm({ ...form, variants: newVariants });
+                        }}
+                        className="w-32"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          const newVariants = form.variants.filter((_, i) => i !== index);
+                          setForm({ ...form, variants: newVariants });
+                        }}
+                        disabled={form.variants.length === 1}
+                      >
+                        <Trash className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setForm({ ...form, variants: [...form.variants, { name: "", price: "" }] });
+                    }}
+                    className="w-full"
+                  >
+                    <Plus className="mr-2 size-4" />
+                    Agregar Variante
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Imagen del Producto</Label>

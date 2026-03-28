@@ -50,6 +50,11 @@ export const paymentStatusEnumForPayments = pgEnum("payment_status_payments", [
   "completed",
   "failed",
 ]);
+export const tableStatusEnum = pgEnum("table_status", [
+  "available",
+  "occupied",
+  "reserved",
+]);
 
 // User profiles (extends Neon Auth users)
 export const userProfiles = pgTable("user_profiles", {
@@ -96,6 +101,8 @@ export const products = pgTable("products", {
   categoryId: uuid("category_id").references(() => categories.id),
   groupId: uuid("group_id").references(() => groups.id),
   imageUrl: text("image_url"),
+  hasVariants: boolean("has_variants").notNull().default(false),
+  variants: text("variants"), // JSON: [{ name: "Pieza", price: "50.00" }, { name: "Orden", price: "150.00" }]
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -208,6 +215,7 @@ export const orders = pgTable("orders", {
   mercadopagoPaymentId: text("mercadopago_payment_id"),
   mercadopagoPaymentIntentId: text("mercadopago_payment_intent_id"),
   userId: uuid("user_id").references(() => userProfiles.id),
+  tableId: uuid("table_id").references(() => tables.id),
   customerName: varchar("customer_name", { length: 255 }),
   notes: text("notes"),
   loyaltyCardId: uuid("loyalty_card_id").references(() => loyaltyCards.id),
@@ -237,6 +245,7 @@ export const orderItems = pgTable("order_items", {
   extraId: uuid("extra_id").references(() => extras.id),
   extraName: varchar("extra_name", { length: 255 }),
   customModifiers: text("custom_modifiers"), // JSON string with custom modifier selections
+  deliveredToTable: boolean("delivered_to_table").notNull().default(false), // Track if item was delivered to table
 });
 
 // Order payments (for split payments)
@@ -254,6 +263,18 @@ export const orderPayments = pgTable("order_payments", {
   mercadopagoPaymentId: text("mercadopago_payment_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
+});
+
+// Tables (mesas del restaurante)
+export const tables = pgTable("tables", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  number: varchar("number", { length: 50 }).notNull().unique(),
+  name: varchar("name", { length: 255 }),
+  capacity: integer("capacity").notNull().default(4),
+  status: tableStatusEnum("status").notNull().default("available"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Cash registers
@@ -431,6 +452,10 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   cashRegister: one(cashRegisters, {
     fields: [orders.cashRegisterId],
     references: [cashRegisters.id],
+  }),
+  table: one(tables, {
+    fields: [orders.tableId],
+    references: [tables.id],
   }),
 }));
 

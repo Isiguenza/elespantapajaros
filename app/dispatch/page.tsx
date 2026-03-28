@@ -24,7 +24,7 @@ export default function DispatchMonitorPage() {
 
   const fetchOrders = useCallback(async () => {
     try {
-      const res = await fetch("/api/orders?status=preparing,ready");
+      const res = await fetch("/api/orders?status=preparing");
       if (res.ok) {
         const newOrders = await res.json();
         const newOrderIds = new Set<string>(newOrders.map((o: Order) => o.id));
@@ -123,7 +123,7 @@ export default function DispatchMonitorPage() {
       const res = await fetch(`/api/orders/${orderId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "delivered" }),
+        body: JSON.stringify({ status: "ready" }), // Cambiar a ready para que aparezca en bar
       });
 
       if (res.ok) {
@@ -275,9 +275,14 @@ export default function DispatchMonitorPage() {
                 </div>
 
                 <div className="px-4 py-3">
-                  {/* Nombre del cliente */}
+                  {/* Mesa o Para Llevar */}
                   <div className="text-neutral-400 text-xs mb-3">
-                    Para llevar • {order.customerName || 'Sin nombre'}
+                    {order.table ? (
+                      <span className="font-semibold text-yellow-400">Mesa {order.table.number}</span>
+                    ) : (
+                      <span className="font-semibold text-green-400">Para Llevar</span>
+                    )}
+                    {order.customerName && <span> • {order.customerName}</span>}
                   </div>
 
                   {/* Items */}
