@@ -92,6 +92,7 @@ export default function BarPage() {
   const [itemAssignments, setItemAssignments] = useState<Record<number, number[]>>({}); // personIndex -> [cartItemIndexes]
   const [individualPayments, setIndividualPayments] = useState<Record<number, { paid: boolean, method: string | null, amount: number }>>({}); // personIndex -> payment info
   const [individualTips, setIndividualTips] = useState<Record<number, { percentage: number, custom: string, showCustom: boolean }>>({}); // propina por persona
+  const [showIndividualDetails, setShowIndividualDetails] = useState(true); // Para colapsar/expandir cuentas
   const [waitingForTerminal, setWaitingForTerminal] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
@@ -2312,20 +2313,43 @@ export default function BarPage() {
             {/* Mensaje de todos pagados */}
             {Object.values(individualPayments).every(p => p.paid) && (
               <Card className="bg-neutral-900 border-green-600">
-                <CardContent className="p-6">
+                <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     <div className="bg-green-600 p-3 rounded-full">
                       <Check className="size-8 text-white" weight="bold" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-2xl font-bold text-white">¡Todos han pagado!</p>
-                      <p className="text-neutral-400">Total recaudado: {formatCurrency(
+                      <p className="text-xl font-bold text-white">¡Todos han pagado!</p>
+                      <p className="text-neutral-400 text-sm">Total recaudado: {formatCurrency(
                         Object.values(individualPayments).reduce((sum, p) => sum + p.amount, 0)
                       )}</p>
+                      
+                      {/* Desglose colapsable */}
+                      <div className="mt-3">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowIndividualDetails(!showIndividualDetails)}
+                          className="text-xs text-neutral-400 hover:text-white p-0 h-auto"
+                        >
+                          {showIndividualDetails ? '▼ Ocultar desglose' : '▶ Ver desglose'}
+                        </Button>
+                        
+                        {showIndividualDetails && (
+                          <div className="mt-3 space-y-2 text-sm">
+                            {Object.entries(individualPayments).map(([index, payment]) => (
+                              <div key={index} className="flex justify-between text-neutral-300">
+                                <span>Persona {parseInt(index) + 1}:</span>
+                                <span className="font-semibold">{formatCurrency(payment.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-6">
-                    <p className="text-center text-sm text-neutral-400 mb-4">
+                  <div className="mt-4">
+                    <p className="text-center text-xs text-neutral-400 mb-3">
                       Desliza para confirmar y liberar mesa
                     </p>
                     <SlideToConfirm 
@@ -2363,6 +2387,8 @@ export default function BarPage() {
                           setGuestCount(1);
                           setItemAssignments({});
                           setIndividualPayments({});
+                          setIndividualTips({});
+                          setShowIndividualDetails(true);
                           setShowTableSelection(true);
                           
                           // Recargar mesas para actualizar estados
@@ -2380,10 +2406,11 @@ export default function BarPage() {
               </Card>
             )}
 
-            {/* Carousel de personas */}
-            <div className="space-y-4">
-              {/* Navegación del carousel */}
-              <div className="flex items-center justify-between">
+            {/* Carousel de personas - oculto cuando todos pagaron y está colapsado */}
+            {(!Object.values(individualPayments).every(p => p.paid) || showIndividualDetails) && (
+              <div className="space-y-4">
+                {/* Navegación del carousel */}
+                <div className="flex items-center justify-between">
                 <Button
                   variant="outline"
                   onClick={() => setCurrentPersonIndex(Math.max(0, currentPersonIndex - 1))}
@@ -2630,6 +2657,7 @@ export default function BarPage() {
                 );
               })()}
             </div>
+            )}
           </div>
         </div>
       ) : showingPayment ? (
