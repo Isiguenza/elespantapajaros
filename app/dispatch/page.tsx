@@ -250,7 +250,7 @@ export default function DispatchMonitorPage() {
 
       {/* Grid de órdenes con scroll */}
       <div className="flex-1 overflow-auto p-6">
-        <div className="grid grid-cols-4 gap-4 max-w-screen-2xl">
+        <div className="grid grid-cols-4 gap-4 max-w-screen-2xl auto-rows-min">
         {orders.length === 0 ? (
           <div className="col-span-4 flex items-center justify-center h-96 text-neutral-500">
             No hay órdenes pendientes
@@ -266,7 +266,7 @@ export default function DispatchMonitorPage() {
             return (
               <div
                 key={order.id}
-                className="bg-neutral-900 rounded-lg overflow-hidden border border-neutral-800 hover:border-neutral-700 transition-all"
+                className="bg-neutral-900 rounded-lg overflow-hidden border border-neutral-800 hover:border-neutral-700 transition-all h-fit"
               >
                 {/* Header con color de urgencia */}
                 <div className={`${urgencyColor} px-4 py-2 flex items-center justify-between`}>
@@ -286,45 +286,57 @@ export default function DispatchMonitorPage() {
                   </div>
 
                   {/* Items */}
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {visibleItems?.map((item, idx) => {
                       const customMods = parseCustomModifiers(item.customModifiers || null);
                       return (
                         <div key={idx} className="text-white">
-                          <div className="flex items-start gap-2">
-                            <span className="font-semibold">{item.quantity}</span>
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
+                              {item.quantity}
+                            </div>
                             <div className="flex-1">
-                              <div className="font-medium">{item.productName}</div>
+                              <div className="font-semibold text-base">{item.productName}</div>
                               {item.frostingName && (
-                                <div className="text-blue-400 text-sm">• {item.frostingName}</div>
+                                <div className="text-blue-400 text-sm flex items-start gap-1 mt-1">
+                                  <span className="opacity-50">↳</span>
+                                  <span>{item.frostingName}</span>
+                                </div>
                               )}
                               {item.dryToppingName && (
-                                <div className="text-purple-400 text-sm">• {item.dryToppingName}</div>
+                                <div className="text-purple-400 text-sm flex items-start gap-1 mt-1">
+                                  <span className="opacity-50">↳</span>
+                                  <span>{item.dryToppingName}</span>
+                                </div>
                               )}
                               {item.extraName && (
-                                <div className="text-green-400 text-sm">• {item.extraName}</div>
+                                <div className="text-green-400 text-sm flex items-start gap-1 mt-1">
+                                  <span className="opacity-50">↳</span>
+                                  <span>{item.extraName}</span>
+                                </div>
                               )}
                               {customMods && Object.entries(customMods).map(([key, value]) => {
-                                // Si value es un objeto con stepName y options
                                 if (typeof value === 'object' && value !== null && 'stepName' in value && 'options' in value) {
                                   const step = value as { stepName: string; options: Array<{ name: string }> };
                                   const optionNames = step.options.map(opt => opt.name).join(', ');
                                   return (
-                                    <div key={key} className="text-amber-400 text-sm">
-                                      • {step.stepName}: {optionNames || 'N/A'}
+                                    <div key={key} className="text-amber-400 text-sm flex items-start gap-1 mt-1">
+                                      <span className="opacity-50">↳</span>
+                                      <span>{step.stepName}: {optionNames || 'N/A'}</span>
                                     </div>
                                   );
                                 }
-                                // Fallback para otros tipos de valores
                                 return (
-                                  <div key={key} className="text-amber-400 text-sm">
-                                    • {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                  <div key={key} className="text-amber-400 text-sm flex items-start gap-1 mt-1">
+                                    <span className="opacity-50">↳</span>
+                                    <span>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
                                   </div>
                                 );
                               })}
                               {item.notes && (
-                                <div className="text-yellow-300 text-sm italic mt-1">
-                                  📝 {item.notes}
+                                <div className="text-yellow-400 text-sm flex items-start gap-1 mt-1 italic font-medium">
+                                  <span className="opacity-50">↳</span>
+                                  <span>{item.notes}</span>
                                 </div>
                               )}
                             </div>
