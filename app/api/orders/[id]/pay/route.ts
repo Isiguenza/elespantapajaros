@@ -20,7 +20,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId } = body;
+    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId, tip } = body;
 
     // Get the order
     const order = await db.query.orders.findFirst({
@@ -35,6 +35,11 @@ export async function POST(
     if (order.paymentStatus === "paid") {
       return NextResponse.json({ error: "Already paid" }, { status: 400 });
     }
+
+    // Calcular nuevo total con propina si existe
+    const tipAmount = tip || 0;
+    const originalTotal = parseFloat(order.total);
+    const newTotal = originalTotal + tipAmount;
 
     if (paymentMethod === "terminal_mercadopago") {
       // Validate minimum amount for Mercado Pago (500 cents = $5.00 MXN)
@@ -83,13 +88,14 @@ export async function POST(
       }
     } else {
       // Cash or Transfer payment - mark as paid and delivered
-      console.log(`💰 Marcando orden ${id} como paid + delivered`);
+      console.log(`💰 Marcando orden ${id} como paid + delivered con propina: $${tipAmount}`);
       await db
         .update(orders)
         .set({
           paymentMethod: paymentMethod, // "cash" or "transfer"
           paymentStatus: "paid",
           status: "delivered", // Mark as delivered so it doesn't reappear when reopening the table
+          total: newTotal.toString(), // Actualizar total con propina incluida
           loyaltyCardId: loyaltyCardId || null,
           userId: userId || null,
           updatedAt: new Date(),

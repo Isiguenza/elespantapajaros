@@ -1431,6 +1431,11 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
+      // Calcular propina
+      const tipAmount = showCustomTip 
+        ? parseFloat(customTip) || 0 
+        : (cartTotal * tipPercentage / 100);
+      
       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1439,6 +1444,7 @@ export default function BarPage() {
           loyaltyCardId: loyaltyCard?.id || null,
           loyaltyStamps: 1,
           userId: employeeId,
+          tip: tipAmount, // Enviar propina al API
         }),
       });
       if (!res.ok) throw new Error();
@@ -1455,6 +1461,11 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
+      // Calcular propina
+      const tipAmount = showCustomTip 
+        ? parseFloat(customTip) || 0 
+        : (cartTotal * tipPercentage / 100);
+      
       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1463,6 +1474,7 @@ export default function BarPage() {
           loyaltyCardId: loyaltyCard?.id || null,
           loyaltyStamps: 1,
           userId: employeeId,
+          tip: tipAmount, // Enviar propina al API
         }),
       });
       if (!res.ok) throw new Error();
@@ -2945,7 +2957,11 @@ export default function BarPage() {
                       {paymentMethod === "transfer" && "Transferencia confirmada"}
                       {paymentMethod === "terminal_mercadopago" && "Pago con terminal confirmado"}
                     </p>
-                    <p className="text-3xl font-bold mt-4">{formatCurrency(cartTotal)}</p>
+                    <p className="text-3xl font-bold mt-4">{formatCurrency(
+                      cartTotal + (showCustomTip 
+                        ? parseFloat(customTip) || 0 
+                        : (cartTotal * tipPercentage / 100))
+                    )}</p>
                   </CardContent>
                 </Card>
 
