@@ -712,8 +712,8 @@ export default function BarPage() {
       }
 
       // Marcar items como enviados a cocina en el carrito local
-      const updatedCart = cart.map(item => 
-        item.sentToKitchen ? item : { ...item, sentToKitchen: true, orderId: orderId, orderStatus: "preparing" as const }
+      const updatedCart: CartItem[] = cart.map(item => 
+        item.sentToKitchen ? item : { ...item, sentToKitchen: true, orderId: orderId, orderStatus: "preparing" as const } as CartItem
       );
       setCart(updatedCart);
       
