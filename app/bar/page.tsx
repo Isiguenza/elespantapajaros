@@ -481,12 +481,11 @@ export default function BarPage() {
 
   function handleNewDeliveryOrder() {
     console.log("🛍️ handleNewDeliveryOrder called");
-    // Cerrar selección de mesas y mostrar pantalla de orden
+    const name = prompt("Nombre del cliente (opcional):");
+    setCustomerName(name || "");
     setSelectedTable(null);
+    setGuestCount(1); // Para llevar es 1 persona por default
     setShowTableSelection(false);
-    
-    // Mostrar dialog para pedir nombre del cliente
-    setShowCustomerNameDialog(true);
   }
 
   function handleConfirmCustomerName() {
@@ -733,19 +732,32 @@ export default function BarPage() {
 
   async function fetchData() {
     try {
-      const [productsRes, categoriesRes, frostingsRes, toppingsRes, extrasRes] = await Promise.all([
-        fetch("/api/products?active=true"),
+      // Solo cargar categorías y datos esenciales al inicio (mucho más rápido)
+      const [categoriesRes, frostingsRes, toppingsRes, extrasRes] = await Promise.all([
         fetch("/api/categories"),
         fetch("/api/frostings"),
         fetch("/api/dry-toppings"),
         fetch("/api/extras"),
       ]);
       
-      if (productsRes.ok) setProducts(await productsRes.json());
       if (categoriesRes.ok) setCategories(await categoriesRes.json());
       if (frostingsRes.ok) setFrostings(await frostingsRes.json());
       if (toppingsRes.ok) setToppings(await toppingsRes.json());
       if (extrasRes.ok) setExtras(await extrasRes.json());
+      
+      // Intentar cargar productos desde caché
+      const cachedProducts = localStorage.getItem('cachedProducts');
+      const cacheTimestamp = localStorage.getItem('cacheTimestamp');
+      const now = Date.now();
+      const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+      
+      if (cachedProducts && cacheTimestamp && (now - parseInt(cacheTimestamp)) < CACHE_DURATION) {
+        // Usar caché si es reciente
+        setProducts(JSON.parse(cachedProducts));
+      } else {
+        // Cargar productos en segundo plano y actualizar caché
+        fetchAndCacheProducts();
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error("Error cargando datos");
@@ -753,10 +765,30 @@ export default function BarPage() {
       setLoading(false);
     }
   }
+  
+  async function fetchAndCacheProducts() {
+    try {
+      const productsRes = await fetch("/api/products?active=true");
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        setProducts(productsData);
+        // Guardar en caché
+        localStorage.setItem('cachedProducts', JSON.stringify(productsData));
+        localStorage.setItem('cacheTimestamp', Date.now().toString());
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
+  }
 
-  // Cargar flujo de categoría
+  // Cargar flujo de categoría y productos si no están cargados
   async function loadCategoryFlow(categoryId: string) {
     try {
+      // Si no hay productos cargados aún, cargarlos ahora
+      if (products.length === 0) {
+        fetchAndCacheProducts();
+      }
+      
       const res = await fetch(`/api/categories/${categoryId}/flow`);
       if (res.ok) {
         const flow = await res.json();
@@ -1605,94 +1637,32 @@ export default function BarPage() {
   // Dashboard de bienvenida
   if (showDashboard) {
     return (
-      <div className="flex h-screen bg-background">
-        <div className="flex-1 p-8">
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold mb-2">¡Feliz Año Nuevo!</h1>
-            <p className="text-muted-foreground">México y LatAm</p>
+      <div className="flex h-screen items-center justify-center bg-neutral-950">
+        <div className="w-full max-w-md p-8 bg-neutral-900 rounded-lg shadow-2xl border border-neutral-800 flex flex-col items-center gap-6">
+          {/* Header con logo/titulo */}
+          <div className="text-center mb-4">
+            <h1 className="text-3xl font-bold text-white mb-2">BRUMA Marisquería</h1>
+            <div className="w-16 h-1 bg-blue-600 mx-auto rounded-full"></div>
           </div>
 
-          <div className="absolute top-8 right-8 text-right">
-            <div className="text-5xl font-bold">
-              {currentTime.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-            </div>
-          </div>
-
-          <div className="mb-8 bg-card rounded-lg p-6 border">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-lg">📝</span>
-              <h2 className="text-xl font-semibold">Notas del día</h2>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <div className="font-semibold">PoloTeam</div>
-                <div className="text-sm text-muted-foreground">Louise Kunkaden</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Recuerden empezar el nuevo año con todo y a por todo. ¡Sí les deseo un hermoso inicio de año!
-                </p>
-                <div className="text-xs text-muted-foreground mt-2">Hoy a las 00:00 AM</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-6">
-            <div className="bg-card rounded-lg p-6 border">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-lg">📊</span>
-                <h3 className="font-semibold">Producto más vendidos</h3>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm">1. Cappuccino</div>
-                    <div className="text-xs text-muted-foreground">820 unidades</div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm">2. Americano</div>
-                    <div className="text-xs text-muted-foreground">482 unidades</div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm">3. Dona Moka</div>
-                    <div className="text-xs text-muted-foreground">369 unidades</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-card rounded-lg p-6 border">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-lg">🎯</span>
-                <h3 className="font-semibold">Metas del año</h3>
-              </div>
-              <div className="text-center py-8">
-                <div className="text-6xl font-bold text-primary">47</div>
-                <div className="text-sm text-muted-foreground mt-2">+5.14% versus el año pasado</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="w-96 bg-card border-l flex flex-col items-center justify-center p-8">
           {authStep === 'idle' && (
             <>
-              <div className="text-center mb-8">
-                <h2 className="text-2xl font-semibold mb-2">Ingresa tu PIN</h2>
-                <p className="text-muted-foreground text-sm">Para comenzar tu turno</p>
+              <div className="text-center mb-6">
+                <h2 className="text-xl font-semibold text-white mb-2">Comandera</h2>
+                <p className="text-neutral-400 text-sm">Sistema POS</p>
                 {!cashRegisterOpen && !checkingRegister && (
-                  <p className="text-destructive text-sm mt-2">⚠️ Caja cerrada</p>
+                  <div className="mt-4 p-3 bg-red-950/50 border border-red-800/50 rounded-lg">
+                    <p className="text-red-400 text-sm font-medium">⚠️ Caja cerrada</p>
+                  </div>
                 )}
               </div>
               <Button
                 onClick={handleOpenComanda}
                 disabled={checkingRegister}
                 size="lg"
-                className="px-12 py-6 text-lg"
+                className="px-12 py-6 text-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold"
               >
-                ✓ Ingresar comanda
+                Iniciar Sesión
               </Button>
             </>
           )}
@@ -1700,17 +1670,17 @@ export default function BarPage() {
           {authStep === 'employee' && (
             <div className="w-full">
               <div className="text-center mb-6">
-                <h2 className="text-xl font-semibold mb-2">Código de Empleado</h2>
-                <p className="text-muted-foreground text-sm">Ingresa tu código (6 dígitos)</p>
+                <h2 className="text-xl font-semibold text-white mb-2">Código de Empleado</h2>
+                <p className="text-neutral-400 text-sm">6 dígitos</p>
               </div>
               
               <div className="mb-6 text-center">
-                <div className="text-3xl font-mono tracking-widest h-12 flex items-center justify-center">
+                <div className="text-4xl font-mono tracking-widest h-16 flex items-center justify-center bg-neutral-950 rounded-lg border border-neutral-800 text-white">
                   {employeeCode.padEnd(6, '·')}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-3 gap-3 mb-6">
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '←'].map((key) => (
                   <Button
                     key={key}
@@ -1721,18 +1691,18 @@ export default function BarPage() {
                       else if (key === '←') handleBackspace();
                       else handleNumberClick(key);
                     }}
-                    className="h-14 text-lg"
+                    className="h-16 text-xl font-semibold bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700 hover:border-blue-600"
                   >
                     {key}
                   </Button>
                 ))}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Button
                   onClick={handleEmployeeSubmit}
                   disabled={employeeCode.length !== 6}
-                  className="w-full"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                   size="lg"
                 >
                   Siguiente →
@@ -1740,7 +1710,7 @@ export default function BarPage() {
                 <Button
                   onClick={handleCancel}
                   variant="outline"
-                  className="w-full"
+                  className="w-full bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700"
                 >
                   Cancelar
                 </Button>
@@ -1751,17 +1721,17 @@ export default function BarPage() {
           {authStep === 'pin' && (
             <div className="w-full">
               <div className="text-center mb-6">
-                <h2 className="text-xl font-semibold mb-2">Ingresa tu PIN</h2>
-                <p className="text-muted-foreground text-sm">PIN de 4 dígitos</p>
+                <h2 className="text-xl font-semibold text-white mb-2">PIN de Seguridad</h2>
+                <p className="text-neutral-400 text-sm">4 dígitos</p>
               </div>
               
               <div className="mb-6 text-center">
-                <div className="text-3xl font-mono tracking-widest h-12 flex items-center justify-center">
+                <div className="text-4xl font-mono tracking-widest h-16 flex items-center justify-center bg-neutral-950 rounded-lg border border-neutral-800 text-white">
                   {pin.split('').map((_, i) => '●').join(' ').padEnd(7, '·')}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-3 gap-3 mb-6">
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '←'].map((key) => (
                   <Button
                     key={key}
@@ -1772,18 +1742,18 @@ export default function BarPage() {
                       else if (key === '←') handleBackspace();
                       else handleNumberClick(key);
                     }}
-                    className="h-14 text-lg"
+                    className="h-16 text-xl font-semibold bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700 hover:border-blue-600"
                   >
                     {key}
                   </Button>
                 ))}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Button
                   onClick={handlePinSubmit}
                   disabled={pin.length !== 4 || authenticating}
-                  className="w-full"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                   size="lg"
                 >
                   {authenticating ? 'Verificando...' : 'Ingresar ✓'}
@@ -1791,7 +1761,7 @@ export default function BarPage() {
                 <Button
                   onClick={handleCancel}
                   variant="outline"
-                  className="w-full"
+                  className="w-full bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700"
                 >
                   Cancelar
                 </Button>
@@ -1999,12 +1969,19 @@ export default function BarPage() {
                     {selectedTable ? (
                       <>
                         <Coffee className="size-4" />
-                        <span>{selectedTable.name || `Mesa ${selectedTable.number}`}</span>
+                        <div className="flex flex-col items-start">
+                          <span className="font-medium">{selectedTable.name || `Mesa ${selectedTable.number}`}</span>
+                        </div>
                       </>
                     ) : (
                       <>
                         <ShoppingBag className="size-4" />
-                        <span>Para Llevar</span>
+                        <div className="flex flex-col items-start">
+                          <span className="font-medium">Para Llevar</span>
+                          {customerName && (
+                            <span className="text-xs text-neutral-400">{customerName}</span>
+                          )}
+                        </div>
                       </>
                     )}
                   </Button>
