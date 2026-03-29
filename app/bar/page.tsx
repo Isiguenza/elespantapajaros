@@ -2638,9 +2638,9 @@ export default function BarPage() {
                             <div 
                               className="inline-block px-2 py-1 rounded text-xs font-medium mt-2"
                               style={{ 
-                                backgroundColor: `${category.color}20`,
-                                color: category.color,
-                                border: `1px solid ${category.color}40`
+                                backgroundColor: `${category.color || '#6B7280'}20`,
+                                color: category.color || '#6B7280',
+                                border: `1px solid ${category.color || '#6B7280'}40`
                               }}
                             >
                               {category.name}
