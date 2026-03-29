@@ -2323,29 +2323,6 @@ export default function BarPage() {
                       <p className="text-neutral-400 text-sm">Total recaudado: {formatCurrency(
                         Object.values(individualPayments).reduce((sum, p) => sum + p.amount, 0)
                       )}</p>
-                      
-                      {/* Desglose colapsable */}
-                      <div className="mt-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowIndividualDetails(!showIndividualDetails)}
-                          className="text-xs text-neutral-400 hover:text-white p-0 h-auto"
-                        >
-                          {showIndividualDetails ? '▼ Ocultar desglose' : '▶ Ver desglose'}
-                        </Button>
-                        
-                        {showIndividualDetails && (
-                          <div className="mt-3 space-y-2 text-sm">
-                            {Object.entries(individualPayments).map(([index, payment]) => (
-                              <div key={index} className="flex justify-between text-neutral-300">
-                                <span>Persona {parseInt(index) + 1}:</span>
-                                <span className="font-semibold">{formatCurrency(payment.amount)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
                     </div>
                   </div>
                   <div className="mt-4">
@@ -2406,8 +2383,36 @@ export default function BarPage() {
               </Card>
             )}
 
-            {/* Carousel de personas - oculto cuando todos pagaron y está colapsado */}
-            {(!Object.values(individualPayments).every(p => p.paid) || showIndividualDetails) && (
+            {/* Cards de personas pagadas - Card separada */}
+            {Object.values(individualPayments).some(p => p.paid) && (
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardContent className="p-4">
+                  <h3 className="text-sm font-semibold text-white mb-3">Pagos Registrados</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {Object.entries(individualPayments)
+                      .filter(([_, payment]) => payment.paid)
+                      .map(([index, payment]) => (
+                        <div
+                          key={index}
+                          className="bg-neutral-950 border border-green-600/30 rounded-lg p-3 flex items-center gap-3"
+                        >
+                          <div className="bg-green-600 p-2 rounded-full">
+                            <Users className="size-4 text-white" weight="fill" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-white">Persona {parseInt(index) + 1}</p>
+                            <p className="text-xs text-green-400 font-bold">{formatCurrency(payment.amount)}</p>
+                          </div>
+                          <Check className="size-4 text-green-600" weight="bold" />
+                        </div>
+                      ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Carousel de personas - solo muestra personas NO pagadas */}
+            {!Object.values(individualPayments).every(p => p.paid) && (
               <div className="space-y-4">
                 {/* Navegación del carousel */}
                 <div className="flex items-center justify-between">
@@ -2645,6 +2650,16 @@ export default function BarPage() {
                               [personIndex]: { paid: true, method: 'cash', amount: personFinalTotal }
                             }));
                             toast.success(`Persona ${personIndex + 1} - Pago registrado: ${formatCurrency(personFinalTotal)}`);
+                            
+                            // Avanzar al siguiente no pagado o volver al primero
+                            const nextUnpaidIndex = Array.from({ length: guestCount }).findIndex((_, idx) => 
+                              idx > personIndex && !individualPayments[idx]?.paid
+                            );
+                            if (nextUnpaidIndex !== -1) {
+                              setCurrentPersonIndex(nextUnpaidIndex);
+                            } else {
+                              setCurrentPersonIndex(0);
+                            }
                           }}
                           className="w-full mt-4 h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold"
                         >
