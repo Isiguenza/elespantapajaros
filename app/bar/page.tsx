@@ -85,6 +85,13 @@ export default function BarPage() {
   const [tipPercentage, setTipPercentage] = useState<number>(0);
   const [customTip, setCustomTip] = useState<string>("");
   const [showCustomTip, setShowCustomTip] = useState(false);
+  
+  // Estados de división de cuenta
+  const [splitBillMode, setSplitBillMode] = useState(false);
+  const [currentPersonIndex, setCurrentPersonIndex] = useState(0); // Para carousel
+  const [itemAssignments, setItemAssignments] = useState<Record<number, number[]>>({}); // personIndex -> [cartItemIndexes]
+  const [individualPayments, setIndividualPayments] = useState<Record<number, { paid: boolean, method: string | null, amount: number }>>({}); // personIndex -> payment info
+  const [individualTips, setIndividualTips] = useState<Record<number, { percentage: number, custom: string, showCustom: boolean }>>({}); // propina por persona
   const [waitingForTerminal, setWaitingForTerminal] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
@@ -737,7 +744,7 @@ export default function BarPage() {
 
   async function fetchData() {
     try {
-      // Solo cargar categorías y datos esenciales al inicio (mucho más rápido)
+      // Cargar categorías y datos esenciales al inicio
       const [categoriesRes, frostingsRes, toppingsRes, extrasRes] = await Promise.all([
         fetch("/api/categories"),
         fetch("/api/frostings"),
@@ -750,19 +757,8 @@ export default function BarPage() {
       if (toppingsRes.ok) setToppings(await toppingsRes.json());
       if (extrasRes.ok) setExtras(await extrasRes.json());
       
-      // Intentar cargar productos desde caché
-      const cachedProducts = localStorage.getItem('cachedProducts');
-      const cacheTimestamp = localStorage.getItem('cacheTimestamp');
-      const now = Date.now();
-      const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
-      
-      if (cachedProducts && cacheTimestamp && (now - parseInt(cacheTimestamp)) < CACHE_DURATION) {
-        // Usar caché si es reciente
-        setProducts(JSON.parse(cachedProducts));
-      } else {
-        // Cargar productos en segundo plano y actualizar caché
-        fetchAndCacheProducts();
-      }
+      // Cargar productos en segundo plano (sin caché por quota issues)
+      fetchAndCacheProducts();
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error("Error cargando datos");
@@ -777,9 +773,7 @@ export default function BarPage() {
       if (productsRes.ok) {
         const productsData = await productsRes.json();
         setProducts(productsData);
-        // Guardar en caché
-        localStorage.setItem('cachedProducts', JSON.stringify(productsData));
-        localStorage.setItem('cacheTimestamp', Date.now().toString());
+        // No guardar en localStorage - causa quota exceeded error
       }
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -1761,7 +1755,7 @@ export default function BarPage() {
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                   size="lg"
                 >
-                  {authenticating ? 'Verificando...' : 'Ingresar ✓'}
+                  {authenticating ? 'Verificando...' : 'Ingresar'}
                 </Button>
                 <Button
                   onClick={handleCancel}
@@ -2300,12 +2294,350 @@ export default function BarPage() {
             )}
           </div>
         </div>
+      ) : splitBillMode ? (
+        // Vista de División de Cuenta
+        <div className="flex-1 flex items-center justify-center p-8 bg-neutral-950">
+          <div className="w-full max-w-6xl space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-3xl font-bold text-white">Dividir Cuenta</h2>
+              <Button 
+                variant="outline" 
+                onClick={() => setSplitBillMode(false)}
+                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
+              >
+                ← Regresar
+              </Button>
+            </div>
+
+            {/* Mensaje de todos pagados */}
+            {Object.values(individualPayments).every(p => p.paid) && (
+              <Card className="bg-neutral-900 border-green-600">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="bg-green-600 p-3 rounded-full">
+                      <Check className="size-8 text-white" weight="bold" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-2xl font-bold text-white">¡Todos han pagado!</p>
+                      <p className="text-neutral-400">Total recaudado: {formatCurrency(
+                        Object.values(individualPayments).reduce((sum, p) => sum + p.amount, 0)
+                      )}</p>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    <p className="text-center text-sm text-neutral-400 mb-4">
+                      Desliza para confirmar y liberar mesa
+                    </p>
+                    <SlideToConfirm 
+                      onConfirm={async () => {
+                        if (!currentOrderId) return;
+                        
+                        setConfirmingOrder(true);
+                        try {
+                          // Marcar orden como pagada y liberar mesa
+                          const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              paymentMethod: "cash", // Pago dividido se registra como cash
+                              loyaltyCardId: loyaltyCard?.id || null,
+                              loyaltyStamps: 1,
+                              userId: employeeId,
+                            }),
+                          });
+                          
+                          if (!res.ok) throw new Error();
+                          
+                          toast.success("Pago dividido completado - Mesa liberada");
+                          
+                          // Limpiar todo y volver a selección de mesas
+                          setCart([]);
+                          setLoyaltyCard(null);
+                          setSplitBillMode(false);
+                          setShowingPayment(false);
+                          setPaymentMethod(null);
+                          setCurrentOrderId(null);
+                          setPaymentCompleted(false);
+                          setSelectedTable(null);
+                          setCustomerName("");
+                          setGuestCount(1);
+                          setItemAssignments({});
+                          setIndividualPayments({});
+                          setShowTableSelection(true);
+                          
+                          // Recargar mesas para actualizar estados
+                          fetchTables();
+                        } catch {
+                          toast.error("Error procesando pago dividido");
+                        } finally {
+                          setConfirmingOrder(false);
+                        }
+                      }} 
+                      disabled={confirmingOrder} 
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Carousel de personas */}
+            <div className="space-y-4">
+              {/* Navegación del carousel */}
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPersonIndex(Math.max(0, currentPersonIndex - 1))}
+                  disabled={currentPersonIndex === 0}
+                  className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30"
+                >
+                  ← Anterior
+                </Button>
+                <div className="text-center">
+                  <p className="text-white font-semibold">Persona {currentPersonIndex + 1} de {guestCount}</p>
+                  <div className="flex gap-1 mt-2 justify-center">
+                    {Array.from({ length: guestCount }).map((_, idx) => (
+                      <div
+                        key={idx}
+                        className={`h-2 w-2 rounded-full ${
+                          idx === currentPersonIndex ? 'bg-blue-600' : 'bg-neutral-700'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPersonIndex(Math.min(guestCount - 1, currentPersonIndex + 1))}
+                  disabled={currentPersonIndex === guestCount - 1}
+                  className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30"
+                >
+                  Siguiente →
+                </Button>
+              </div>
+
+              {/* Persona actual */}
+              {(() => {
+                const personIndex = currentPersonIndex;
+                const assignedItems = itemAssignments[personIndex] || [];
+                const personTotal = assignedItems.reduce((sum, cartIndex) => {
+                  return sum + (cart[cartIndex].unitPrice * cart[cartIndex].quantity);
+                }, 0);
+                
+                // Propina individual de esta persona
+                const personTipData = individualTips[personIndex] || { percentage: 0, custom: '', showCustom: false };
+                const personTip = personTipData.showCustom 
+                  ? parseFloat(personTipData.custom) || 0 
+                  : (personTotal * personTipData.percentage / 100);
+                const personFinalTotal = personTotal + personTip;
+                const hasPaid = individualPayments[personIndex]?.paid || false;
+
+                // Obtener todos los items asignados a OTRAS personas
+                const itemsAssignedToOthers = Object.entries(itemAssignments)
+                  .filter(([idx]) => parseInt(idx) !== personIndex)
+                  .flatMap(([_, items]) => items);
+
+                return (
+                  <Card 
+                    className={`bg-neutral-900 border-2 ${
+                      hasPaid 
+                        ? 'border-green-600' 
+                        : 'border-neutral-800'
+                    }`}
+                  >
+                    <CardContent className="p-6">
+                      {/* Header */}
+                      <div className="flex items-center justify-between mb-4 pb-4 border-b border-neutral-800">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-full ${hasPaid ? 'bg-green-600' : 'bg-blue-600'}`}>
+                            <Users className="size-5 text-white" weight="fill" />
+                          </div>
+                          <h4 className="text-xl font-bold text-white">
+                            Persona {personIndex + 1}
+                          </h4>
+                        </div>
+                        {hasPaid && (
+                          <Badge className="bg-green-600 text-white border-0">
+                            <Check className="size-3 mr-1" weight="bold" />
+                            Pagado
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Lista de items del carrito con checkboxes */}
+                      <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+                        {cart.map((item, cartIndex) => {
+                          const isAssigned = assignedItems.includes(cartIndex);
+                          const isAssignedToOther = itemsAssignedToOthers.includes(cartIndex);
+                          const isDisabled = hasPaid || isAssignedToOther;
+
+                          return (
+                            <label
+                              key={cartIndex}
+                              className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                                isDisabled
+                                  ? 'opacity-40 cursor-not-allowed bg-neutral-950 border-neutral-800'
+                                  : isAssigned 
+                                  ? 'bg-blue-600/20 border-blue-600 cursor-pointer' 
+                                  : 'bg-neutral-950 border-neutral-800 cursor-pointer hover:bg-neutral-900 hover:border-neutral-700'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isAssigned}
+                                disabled={isDisabled}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setItemAssignments(prev => ({
+                                      ...prev,
+                                      [personIndex]: [...(prev[personIndex] || []), cartIndex]
+                                    }));
+                                  } else {
+                                    setItemAssignments(prev => ({
+                                      ...prev,
+                                      [personIndex]: (prev[personIndex] || []).filter(i => i !== cartIndex)
+                                    }));
+                                  }
+                                }}
+                                className="size-5 cursor-pointer accent-blue-600"
+                              />
+                              <div className="flex-1 text-sm">
+                                <span className="text-white font-medium">{item.quantity}x {item.productName}</span>
+                                {(item.frostingName || item.dryToppingName || item.extraName) && (
+                                  <div className="text-xs text-neutral-400 mt-1">
+                                    {item.frostingName && `• ${item.frostingName} `}
+                                    {item.dryToppingName && `• ${item.dryToppingName} `}
+                                    {item.extraName && `• ${item.extraName}`}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-sm font-semibold text-blue-400">
+                                {formatCurrency(item.unitPrice * item.quantity)}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      {/* Controles de Propina Individual */}
+                      <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800 mb-3">
+                        <h4 className="text-sm font-semibold text-white mb-2">Propina (Servicio)</h4>
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setIndividualTips(prev => ({
+                                ...prev,
+                                [personIndex]: { percentage: 10, custom: '', showCustom: false }
+                              }));
+                            }}
+                            className={`h-10 text-sm font-semibold ${
+                              personTipData.percentage === 10 && !personTipData.showCustom
+                                ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
+                                : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                            }`}
+                          >
+                            10%
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setIndividualTips(prev => ({
+                                ...prev,
+                                [personIndex]: { percentage: 15, custom: '', showCustom: false }
+                              }));
+                            }}
+                            className={`h-10 text-sm font-semibold ${
+                              personTipData.percentage === 15 && !personTipData.showCustom
+                                ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
+                                : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                            }`}
+                          >
+                            15%
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setIndividualTips(prev => ({
+                                ...prev,
+                                [personIndex]: { percentage: 0, custom: '', showCustom: true }
+                              }));
+                            }}
+                            className={`h-10 text-sm font-semibold ${
+                              personTipData.showCustom
+                                ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
+                                : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                            }`}
+                          >
+                            Otro
+                          </Button>
+                        </div>
+                        {personTipData.showCustom && (
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            value={personTipData.custom}
+                            onChange={(e) => {
+                              setIndividualTips(prev => ({
+                                ...prev,
+                                [personIndex]: { ...personTipData, custom: e.target.value }
+                              }));
+                            }}
+                            className="bg-neutral-950 border-neutral-800 text-white text-sm h-9"
+                          />
+                        )}
+                      </div>
+
+                      {/* Total de esta persona */}
+                      <div className="bg-neutral-950 rounded-lg p-4 border border-neutral-800 space-y-2">
+                        <div className="flex justify-between text-sm text-neutral-400">
+                          <span>Subtotal:</span>
+                          <span className="font-semibold">{formatCurrency(personTotal)}</span>
+                        </div>
+                        {personTip > 0 && (
+                          <div className="flex justify-between text-sm text-blue-400">
+                            <span>Propina {personTipData.showCustom ? '' : `(${personTipData.percentage}%)`}:</span>
+                            <span className="font-semibold">{formatCurrency(personTip)}</span>
+                          </div>
+                        )}
+                        <div className="border-t border-neutral-800 pt-2 mt-2"></div>
+                        <div className="flex justify-between text-xl font-bold text-white">
+                          <span>Total:</span>
+                          <span>{formatCurrency(personFinalTotal)}</span>
+                        </div>
+                      </div>
+
+                      {/* Botón de cobro individual */}
+                      {!hasPaid && assignedItems.length > 0 && (
+                        <Button
+                          onClick={() => {
+                            setIndividualPayments(prev => ({
+                              ...prev,
+                              [personIndex]: { paid: true, method: 'cash', amount: personFinalTotal }
+                            }));
+                            toast.success(`Persona ${personIndex + 1} - Pago registrado: ${formatCurrency(personFinalTotal)}`);
+                          }}
+                          className="w-full mt-4 h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                        >
+                          <Check className="mr-2 size-5" weight="bold" />
+                          Cobrar {formatCurrency(personFinalTotal)}
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
       ) : showingPayment ? (
         // Vista de Pago Inline
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="w-full max-w-2xl space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-3xl font-bold">Procesar Pago</h2>
+        <div className="flex-1 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-5xl space-y-3 my-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-2xl font-bold">Procesar Pago</h2>
               <Button 
                 variant="outline" 
                 onClick={() => {
@@ -2320,11 +2652,13 @@ export default function BarPage() {
               </Button>
             </div>
 
-            {/* Resumen agrupado de items */}
-            <Card>
-              <CardContent className="p-6">
-                <h3 className="font-semibold mb-4 text-lg">Resumen de la orden</h3>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+            {/* Grid: Resumen + Propina en 2 columnas */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* Resumen agrupado de items */}
+              <Card>
+                <CardContent className="p-3">
+                  <h3 className="font-semibold mb-2 text-sm">Resumen de la orden</h3>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
                   {(() => {
                     // Agrupar items por productName + modificadores
                     const groupedItems = cart.reduce((acc, item) => {
@@ -2358,12 +2692,12 @@ export default function BarPage() {
               </CardContent>
             </Card>
 
-            {/* Sección de Propina */}
-            <Card className="bg-neutral-900 border-neutral-800">
-              <CardContent className="p-6">
-                <h3 className="font-semibold mb-4 text-lg text-white">Propina (Servicio)</h3>
+              {/* Sección de Propina */}
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardContent className="p-3">
+                  <h3 className="font-semibold mb-2 text-sm text-white">Propina (Servicio)</h3>
                 
-                <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-3 gap-2 mb-3">
                   <Button
                     variant="outline"
                     onClick={() => {
@@ -2371,7 +2705,7 @@ export default function BarPage() {
                       setCustomTip("");
                       setShowCustomTip(false);
                     }}
-                    className={`h-16 text-lg font-semibold ${
+                    className={`h-12 text-base font-semibold ${
                       tipPercentage === 10 && !showCustomTip
                         ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
                         : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
@@ -2386,7 +2720,7 @@ export default function BarPage() {
                       setCustomTip("");
                       setShowCustomTip(false);
                     }}
-                    className={`h-16 text-lg font-semibold ${
+                    className={`h-12 text-base font-semibold ${
                       tipPercentage === 15 && !showCustomTip
                         ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
                         : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
@@ -2400,7 +2734,7 @@ export default function BarPage() {
                       setShowCustomTip(true);
                       setTipPercentage(0);
                     }}
-                    className={`h-16 text-lg font-semibold ${
+                    className={`h-12 text-base font-semibold ${
                       showCustomTip
                         ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
                         : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
@@ -2411,14 +2745,14 @@ export default function BarPage() {
                 </div>
 
                 {showCustomTip && (
-                  <div className="mb-4">
-                    <Label className="text-neutral-400 text-sm mb-2 block">Monto personalizado</Label>
+                  <div className="mb-3">
+                    <Label className="text-neutral-400 text-xs mb-1 block">Monto personalizado</Label>
                     <Input
                       type="number"
                       placeholder="0.00"
                       value={customTip}
                       onChange={(e) => setCustomTip(e.target.value)}
-                      className="bg-neutral-950 border-neutral-800 text-white text-lg h-12"
+                      className="bg-neutral-950 border-neutral-800 text-white text-base h-10"
                     />
                   </div>
                 )}
@@ -2438,57 +2772,123 @@ export default function BarPage() {
                 )}
               </CardContent>
             </Card>
+            </div>
 
-            {/* Total de la orden */}
-            <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6">
-              <div className="space-y-3">
-                {/* Subtotal */}
-                <div className="flex items-center justify-between text-neutral-400">
-                  <span className="text-lg">Subtotal:</span>
-                  <span className="text-2xl font-semibold">{formatCurrency(cartTotal)}</span>
-                </div>
-                
-                {/* Propina si existe */}
-                {(() => {
-                  const tipAmount = showCustomTip 
-                    ? parseFloat(customTip) || 0 
-                    : (cartTotal * tipPercentage / 100);
+            {/* Total + División en Grid */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* Total de la orden */}
+              <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-3">
+                <div className="space-y-2">
+                  {/* Subtotal */}
+                  <div className="flex items-center justify-between text-neutral-400 text-sm">
+                    <span>Subtotal:</span>
+                    <span className="font-semibold">{formatCurrency(cartTotal)}</span>
+                  </div>
                   
-                  if (tipAmount > 0) {
-                    return (
-                      <div className="flex items-center justify-between text-blue-400">
-                        <span className="text-lg">
-                          Propina {showCustomTip ? '' : `(${tipPercentage}%)`}:
-                        </span>
-                        <span className="text-2xl font-semibold">{formatCurrency(tipAmount)}</span>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-                
-                {/* Divider */}
-                <div className="border-t border-neutral-700 my-2"></div>
-                
-                {/* Total Final */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xl font-medium text-white">Total a pagar:</span>
-                  <span className="text-4xl font-bold text-white">
-                    {formatCurrency(
-                      cartTotal + (showCustomTip 
-                        ? parseFloat(customTip) || 0 
-                        : (cartTotal * tipPercentage / 100))
-                    )}
-                  </span>
+                  {/* Propina si existe */}
+                  {(() => {
+                    const tipAmount = showCustomTip 
+                      ? parseFloat(customTip) || 0 
+                      : (cartTotal * tipPercentage / 100);
+                    
+                    if (tipAmount > 0) {
+                      return (
+                        <div className="flex items-center justify-between text-blue-400 text-sm">
+                          <span>
+                            Propina {showCustomTip ? '' : `(${tipPercentage}%)`}:
+                          </span>
+                          <span className="font-semibold">{formatCurrency(tipAmount)}</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                  
+                  {/* Divider */}
+                  <div className="border-t border-neutral-700"></div>
+                  
+                  {/* Total Final */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-medium text-white">Total a pagar:</span>
+                    <span className="text-2xl font-bold text-white">
+                      {formatCurrency(
+                        cartTotal + (showCustomTip 
+                          ? parseFloat(customTip) || 0 
+                          : (cartTotal * tipPercentage / 100))
+                      )}
+                    </span>
+                  </div>
+                  
+                  {loyaltyCard && (
+                    <p className="text-xs text-neutral-400 mt-2">
+                      Cliente: {loyaltyCard.customerName} • Se agregará 1 sello
+                    </p>
+                  )}
                 </div>
               </div>
-              
-              {loyaltyCard && (
-                <p className="text-sm text-neutral-400 mt-4">
-                  Cliente: {loyaltyCard.customerName} • Se agregará 1 sello
-                </p>
+
+              {/* Indicador de División de Cuenta */}
+              {Object.keys(individualPayments).length > 0 ? (
+                <Card className="bg-neutral-900 border-neutral-800">
+                  <CardContent className="p-3">
+                    <div className="flex flex-col justify-center h-full">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Users className="size-4 text-blue-400" weight="fill" />
+                          <p className="text-sm font-semibold text-white">División de Cuenta</p>
+                        </div>
+                        {Object.values(individualPayments).every(p => p.paid) ? (
+                          <Badge className="bg-green-600 text-white text-xs">
+                            <Check className="size-3 mr-1" weight="bold" />
+                            Completo
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-yellow-600 text-white text-xs">
+                            Pendiente
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-neutral-400">
+                        {Object.values(individualPayments).filter(p => p.paid).length} de {guestCount} {guestCount === 1 ? 'persona ha' : 'personas han'} pagado
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div></div>
               )}
             </div>
+
+            {/* Botón Dividir Cuenta - solo si hay más de 1 persona */}
+            {!paymentCompleted && guestCount > 1 && (
+              <div className="max-w-md mx-auto">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    // Solo inicializar si no hay datos previos (persistencia)
+                    if (Object.keys(itemAssignments).length === 0) {
+                      const initialAssignments: Record<number, number[]> = {};
+                      const initialPayments: Record<number, { paid: boolean, method: string | null, amount: number }> = {};
+                      const initialTips: Record<number, { percentage: number, custom: string, showCustom: boolean }> = {};
+                      for (let i = 0; i < guestCount; i++) {
+                        initialAssignments[i] = [];
+                        initialPayments[i] = { paid: false, method: null, amount: 0 };
+                        initialTips[i] = { percentage: 0, custom: '', showCustom: false };
+                      }
+                      setItemAssignments(initialAssignments);
+                      setIndividualPayments(initialPayments);
+                      setIndividualTips(initialTips);
+                    }
+                    setCurrentPersonIndex(0);
+                    setSplitBillMode(true);
+                  }}
+                  className="w-full h-14 text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white border-0"
+                >
+                  <Users className="mr-2 size-5" weight="fill" />
+                  {Object.keys(individualPayments).length > 0 ? 'Continuar División' : 'Dividir Cuenta'} ({guestCount} {guestCount === 1 ? 'persona' : 'personas'})
+                </Button>
+              </div>
+            )}
 
             {/* Vista de confirmación con slide button */}
             {paymentCompleted ? (
