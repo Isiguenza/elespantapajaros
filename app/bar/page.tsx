@@ -80,6 +80,11 @@ export default function BarPage() {
   const [showingLoyaltyStep, setShowingLoyaltyStep] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "terminal_mercadopago" | "transfer" | null>(null);
   const [cashReceived, setCashReceived] = useState("");
+  
+  // Estados de propina
+  const [tipPercentage, setTipPercentage] = useState<number>(0);
+  const [customTip, setCustomTip] = useState<string>("");
+  const [showCustomTip, setShowCustomTip] = useState(false);
   const [waitingForTerminal, setWaitingForTerminal] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
@@ -2353,14 +2358,133 @@ export default function BarPage() {
               </CardContent>
             </Card>
 
+            {/* Sección de Propina */}
+            <Card className="bg-neutral-900 border-neutral-800">
+              <CardContent className="p-6">
+                <h3 className="font-semibold mb-4 text-lg text-white">Propina (Servicio)</h3>
+                
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setTipPercentage(10);
+                      setCustomTip("");
+                      setShowCustomTip(false);
+                    }}
+                    className={`h-16 text-lg font-semibold ${
+                      tipPercentage === 10 && !showCustomTip
+                        ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
+                        : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                    }`}
+                  >
+                    10%
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setTipPercentage(15);
+                      setCustomTip("");
+                      setShowCustomTip(false);
+                    }}
+                    className={`h-16 text-lg font-semibold ${
+                      tipPercentage === 15 && !showCustomTip
+                        ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
+                        : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                    }`}
+                  >
+                    15%
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowCustomTip(true);
+                      setTipPercentage(0);
+                    }}
+                    className={`h-16 text-lg font-semibold ${
+                      showCustomTip
+                        ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
+                        : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                    }`}
+                  >
+                    Otro
+                  </Button>
+                </div>
+
+                {showCustomTip && (
+                  <div className="mb-4">
+                    <Label className="text-neutral-400 text-sm mb-2 block">Monto personalizado</Label>
+                    <Input
+                      type="number"
+                      placeholder="0.00"
+                      value={customTip}
+                      onChange={(e) => setCustomTip(e.target.value)}
+                      className="bg-neutral-950 border-neutral-800 text-white text-lg h-12"
+                    />
+                  </div>
+                )}
+
+                {(tipPercentage > 0 || (showCustomTip && parseFloat(customTip) > 0)) && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setTipPercentage(0);
+                      setCustomTip("");
+                      setShowCustomTip(false);
+                    }}
+                    className="w-full bg-neutral-800 border-neutral-700 text-neutral-400 hover:bg-neutral-700 hover:text-white"
+                  >
+                    Sin propina
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Total de la orden */}
-            <div className="bg-primary/10 rounded-lg p-6">
-              <div className="flex items-center justify-between">
-                <span className="text-xl font-medium">Total a pagar:</span>
-                <span className="text-4xl font-bold">{formatCurrency(cartTotal)}</span>
+            <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6">
+              <div className="space-y-3">
+                {/* Subtotal */}
+                <div className="flex items-center justify-between text-neutral-400">
+                  <span className="text-lg">Subtotal:</span>
+                  <span className="text-2xl font-semibold">{formatCurrency(cartTotal)}</span>
+                </div>
+                
+                {/* Propina si existe */}
+                {(() => {
+                  const tipAmount = showCustomTip 
+                    ? parseFloat(customTip) || 0 
+                    : (cartTotal * tipPercentage / 100);
+                  
+                  if (tipAmount > 0) {
+                    return (
+                      <div className="flex items-center justify-between text-blue-400">
+                        <span className="text-lg">
+                          Propina {showCustomTip ? '' : `(${tipPercentage}%)`}:
+                        </span>
+                        <span className="text-2xl font-semibold">{formatCurrency(tipAmount)}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+                
+                {/* Divider */}
+                <div className="border-t border-neutral-700 my-2"></div>
+                
+                {/* Total Final */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xl font-medium text-white">Total a pagar:</span>
+                  <span className="text-4xl font-bold text-white">
+                    {formatCurrency(
+                      cartTotal + (showCustomTip 
+                        ? parseFloat(customTip) || 0 
+                        : (cartTotal * tipPercentage / 100))
+                    )}
+                  </span>
+                </div>
               </div>
+              
               {loyaltyCard && (
-                <p className="text-sm text-muted-foreground mt-3">
+                <p className="text-sm text-neutral-400 mt-4">
                   Cliente: {loyaltyCard.customerName} • Se agregará 1 sello
                 </p>
               )}
