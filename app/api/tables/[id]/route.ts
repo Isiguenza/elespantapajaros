@@ -57,7 +57,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { number, name, capacity, status, active } = body;
+    const { number, name, capacity, status, active, guestCount } = body;
 
     const [updatedTable] = await db
       .update(tables)
@@ -67,6 +67,7 @@ export async function PUT(
         ...(capacity !== undefined && { capacity }),
         ...(status !== undefined && { status }),
         ...(active !== undefined && { active }),
+        ...(guestCount !== undefined && { guestCount }),
         updatedAt: new Date(),
       })
       .where(eq(tables.id, id))

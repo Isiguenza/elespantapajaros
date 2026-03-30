@@ -25,6 +25,28 @@ export async function GET(
   }
 }
 
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    
+    const updateData: Record<string, any> = { updatedAt: new Date() };
+    
+    if (body.splitBillData !== undefined) {
+      updateData.splitBillData = body.splitBillData ? JSON.stringify(body.splitBillData) : null;
+    }
+
+    await db.update(orders).set(updateData).where(eq(orders.id, id));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error updating order:", error);
+    return NextResponse.json({ error: "Error" }, { status: 500 });
+  }
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

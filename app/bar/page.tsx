@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +57,11 @@ export default function BarPage() {
   const [showGuestCountDialog, setShowGuestCountDialog] = useState(false);
   const [tempGuestCount, setTempGuestCount] = useState(2);
   
+  // Estados para eliminar items de cocina con razón
+  const [showVoidDialog, setShowVoidDialog] = useState(false);
+  const [voidItemIndex, setVoidItemIndex] = useState<number | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  
   // Flujo de modificadores dinámico
   const [categoryFlow, setCategoryFlow] = useState<CategoryFlow | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1); // -1 = productos
@@ -77,7 +82,8 @@ export default function BarPage() {
   
   // Estados de pago inline
   const [showingPayment, setShowingPayment] = useState(false);
-  const [showingLoyaltyStep, setShowingLoyaltyStep] = useState(false);
+  const [showingLoyaltyStep, setShowingLoyaltyStep] = useState(false); // COMENTADO PARA FUTURO
+  const [paymentStep, setPaymentStep] = useState<"summary" | "payment" | "confirmation" | "split-assign" | "split-overview" | "split-pay-person" | "done">("summary");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "terminal_mercadopago" | "transfer" | null>(null);
   const [cashReceived, setCashReceived] = useState("");
   
@@ -88,16 +94,19 @@ export default function BarPage() {
   
   // Estados de división de cuenta
   const [splitBillMode, setSplitBillMode] = useState(false);
-  const [currentPersonIndex, setCurrentPersonIndex] = useState(0); // Para carousel
+  const [currentPersonIndex, setCurrentPersonIndex] = useState(0);
+  const [selectedSplitPersonIndex, setSelectedSplitPersonIndex] = useState<number>(0); // persona seleccionada para pagar
   const [itemAssignments, setItemAssignments] = useState<Record<number, number[]>>({}); // personIndex -> [cartItemIndexes]
   const [individualPayments, setIndividualPayments] = useState<Record<number, { paid: boolean, method: string | null, amount: number }>>({}); // personIndex -> payment info
   const [individualTips, setIndividualTips] = useState<Record<number, { percentage: number, custom: string, showCustom: boolean }>>({}); // propina por persona
-  const [showIndividualDetails, setShowIndividualDetails] = useState(true); // Para colapsar/expandir cuentas
+  const [showIndividualDetails, setShowIndividualDetails] = useState(true);
   const [waitingForTerminal, setWaitingForTerminal] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [paymentCompleted, setPaymentCompleted] = useState(false);
   const [confirmingOrder, setConfirmingOrder] = useState(false);
+  const [splitPaymentMethod, setSplitPaymentMethod] = useState<"cash" | "terminal_mercadopago" | "transfer" | null>(null);
+  const [splitCashReceived, setSplitCashReceived] = useState("");
   
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>('');
@@ -123,6 +132,35 @@ export default function BarPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scanningRef = useRef<boolean>(false);
+
+  // Persistir estado de división de cuenta en BD
+  const saveSplitBillData = useCallback(async (
+    orderId: string | null,
+    assignments: Record<number, number[]>,
+    payments: Record<number, { paid: boolean, method: string | null, amount: number }>,
+    tips: Record<number, { percentage: number, custom: string, showCustom: boolean }>,
+    guests: number,
+    step: string
+  ) => {
+    if (!orderId) return;
+    try {
+      await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          splitBillData: {
+            itemAssignments: assignments,
+            individualPayments: payments,
+            individualTips: tips,
+            guestCount: guests,
+            paymentStep: step,
+          },
+        }),
+      });
+    } catch (e) {
+      console.error("Error saving split bill data:", e);
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -420,6 +458,9 @@ export default function BarPage() {
   async function handleSelectTable(table: Table) {
     setSelectedTable(table);
     setShowTableSelection(false);
+    // Cargar guestCount persistido de la mesa
+    setGuestCount((table as any).guestCount || 1);
+    setTempGuestCount((table as any).guestCount || 1);
     
     // Cargar todas las órdenes de la mesa (preparing, ready, pending)
     try {
@@ -473,7 +514,29 @@ export default function BarPage() {
           console.log("🛒 Items cargados al carrito:", allCartItems);
           setCart(allCartItems);
           setCurrentOrderId(orders[0].id); // Usar el ID de la primera orden
-          toast.success(`Cuenta de Mesa ${table.number} cargada (${allCartItems.length} items)`);
+          
+          // Restaurar estado de división de cuenta si existe
+          const splitData = orders[0].splitBillData;
+          if (splitData) {
+            try {
+              const parsed = typeof splitData === "string" ? JSON.parse(splitData) : splitData;
+              if (parsed && parsed.itemAssignments) {
+                setItemAssignments(parsed.itemAssignments);
+                setIndividualPayments(parsed.individualPayments || {});
+                setIndividualTips(parsed.individualTips || {});
+                setGuestCount(parsed.guestCount || (table as any).guestCount || 1);
+                setTempGuestCount(parsed.guestCount || (table as any).guestCount || 1);
+                // Restaurar la vista de pago en el paso guardado
+                setShowingPayment(true);
+                setPaymentStep(parsed.paymentStep || "split-overview");
+                toast.success(`División de cuenta restaurada para Mesa ${table.number}`);
+              }
+            } catch (e) {
+              console.error("Error parsing splitBillData:", e);
+            }
+          } else {
+            toast.success(`Cuenta de Mesa ${table.number} cargada (${allCartItems.length} items)`);
+          }
         } else {
           toast.success(`Mesa ${table.number} seleccionada`);
         }
@@ -516,31 +579,60 @@ export default function BarPage() {
     setShowTableSelection(false);
     setCustomerName(order.customerName || "");
     
-    // Cargar items de la orden al carrito
+    // Cargar items de TODAS las órdenes del mismo cliente (agrupar al cobrar)
     try {
-      const items = order.items?.map((item: any) => ({
-        productId: item.productId,
-        productName: item.productName,
-        unitPrice: parseFloat(item.unitPrice),
-        quantity: item.quantity,
-        notes: item.notes || "",
-        frostingId: item.frostingId,
-        frostingName: item.frostingName,
-        dryToppingId: item.dryToppingId,
-        dryToppingName: item.dryToppingName,
-        extraId: item.extraId,
-        extraName: item.extraName,
-        customModifiers: item.customModifiers,
-        sentToKitchen: order.status === "preparing" || order.status === "ready" || order.status === "delivered",
-        orderStatus: order.status,
-        orderId: order.id,
-        itemId: item.id,
-        deliveredToTable: item.deliveredToTable || false,
-      })) || [];
+      const allCartItems: CartItem[] = [];
+      const customerDeliveryOrders = deliveryOrders.filter(
+        (o) => o.customerName === order.customerName
+      );
       
-      setCart(items);
-      setCurrentOrderId(order.id);
-      toast.success(`Orden Para Llevar - ${order.customerName || `#${order.orderNumber}`} cargada`);
+      for (const dOrder of customerDeliveryOrders) {
+        const items = dOrder.items?.map((item: any) => ({
+          productId: item.productId,
+          productName: item.productName,
+          unitPrice: parseFloat(item.unitPrice),
+          quantity: item.quantity,
+          notes: item.notes || "",
+          frostingId: item.frostingId,
+          frostingName: item.frostingName,
+          dryToppingId: item.dryToppingId,
+          dryToppingName: item.dryToppingName,
+          extraId: item.extraId,
+          extraName: item.extraName,
+          customModifiers: item.customModifiers,
+          sentToKitchen: dOrder.status === "preparing" || dOrder.status === "ready" || dOrder.status === "delivered",
+          orderStatus: dOrder.status,
+          orderId: dOrder.id,
+          itemId: item.id,
+          deliveredToTable: item.deliveredToTable || false,
+        })) || [];
+        allCartItems.push(...items);
+      }
+      
+      setCart(allCartItems);
+      setCurrentOrderId(order.id); // Usar la primera orden como principal
+      
+      // Restaurar estado de división de cuenta si existe
+      const splitData = (order as any).splitBillData;
+      if (splitData) {
+        try {
+          const parsed = typeof splitData === "string" ? JSON.parse(splitData) : splitData;
+          if (parsed && parsed.itemAssignments) {
+            setItemAssignments(parsed.itemAssignments);
+            setIndividualPayments(parsed.individualPayments || {});
+            setIndividualTips(parsed.individualTips || {});
+            setGuestCount(parsed.guestCount || 1);
+            setTempGuestCount(parsed.guestCount || 1);
+            setShowingPayment(true);
+            setPaymentStep(parsed.paymentStep || "split-overview");
+            toast.success(`División de cuenta restaurada`);
+            return;
+          }
+        } catch (e) {
+          console.error("Error parsing splitBillData:", e);
+        }
+      }
+      toast.success(`Orden Para Llevar - ${order.customerName || `#${order.orderNumber}`} cargada (${customerDeliveryOrders.length} envíos, ${allCartItems.length} items)`);
     } catch (error) {
       console.error('Error loading delivery order:', error);
       toast.error("Error cargando orden");
@@ -591,50 +683,34 @@ export default function BarPage() {
     }
 
     try {
-      // Si hay mesa, cancelar todas las órdenes activas de la mesa
+      // Si hay mesa, eliminar físicamente todas las órdenes de la mesa (no dejar rastro)
       if (selectedTable) {
-        console.log("🗑️ Liberando mesa:", selectedTable.id);
+        console.log("🗑️ Liberando mesa (DELETE físico):", selectedTable.id);
         
         // Buscar todas las órdenes activas de esta mesa
         const ordersRes = await fetch(`/api/orders?tableId=${selectedTable.id}&status=preparing,ready,pending,delivered`);
         if (ordersRes.ok) {
-          const orders = await ordersRes.json();
-          console.log(`📦 Órdenes a cancelar: ${orders.length}`, orders);
+          const tableOrders = await ordersRes.json();
+          console.log(`📦 Órdenes a eliminar: ${tableOrders.length}`);
           
-          // Cancelar cada orden
-          for (const order of orders) {
-            console.log(`❌ Cancelando orden ${order.id}`);
-            const cancelRes = await fetch(`/api/orders/${order.id}/status`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ status: "cancelled" }),
-            });
-            console.log(`✅ Orden ${order.id} cancelada:`, cancelRes.ok);
+          // Eliminar físicamente cada orden
+          for (const order of tableOrders) {
+            console.log(`🗑️ Eliminando orden ${order.id}`);
+            await fetch(`/api/orders/${order.id}`, { method: "DELETE" });
           }
-        } else {
-          console.error("❌ Error buscando órdenes:", ordersRes.status);
         }
         
-        // Actualizar estado de mesa a "available"
-        const res = await fetch(`/api/tables/${selectedTable.id}`, {
+        // Actualizar estado de mesa a "available" y resetear guestCount
+        await fetch(`/api/tables/${selectedTable.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...selectedTable,
-            status: "available",
-          }),
+          body: JSON.stringify({ status: "available", guestCount: 1 }),
         });
-
-        if (!res.ok) throw new Error();
       }
       
-      // Si hay orden creada (Para Llevar con items enviados a cocina), marcarla como cancelada
+      // Si hay orden creada (Para Llevar), eliminar físicamente
       if (currentOrderId && !selectedTable) {
-        await fetch(`/api/orders/${currentOrderId}/status`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "cancelled" }),
-        });
+        await fetch(`/api/orders/${currentOrderId}`, { method: "DELETE" });
       }
 
       toast.success(`${orderType} liberada`);
@@ -681,35 +757,53 @@ export default function BarPage() {
     }));
 
     try {
-      // SIEMPRE crear una nueva orden para evitar confusión en cocina
-      console.log("🆕 Creando nueva orden separada");
-      const orderData = {
-        tableId: selectedTable?.id || null,
-        items: itemsData,
-        status: "preparing",
-        paymentMethod: null,
-        loyaltyCardId: null,
-        customerName: customerName || null,
-      };
-
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(orderData),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Error creating order");
-      }
-
-      const createdOrder = await res.json();
-      console.log("✅ Nueva orden creada:", createdOrder.id);
-      const orderId = createdOrder.id;
+      let orderId: string;
       
-      // Si no había currentOrderId, guardarlo
-      if (!currentOrderId) {
-        setCurrentOrderId(createdOrder.id);
+      if (currentOrderId) {
+        // Agregar items a la orden existente
+        console.log("➕ Agregando items a orden existente:", currentOrderId);
+        const res = await fetch(`/api/orders/${currentOrderId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: itemsData }),
+        });
+        if (!res.ok) throw new Error("Error adding items to order");
+        
+        // Actualizar status de la orden a preparing
+        await fetch(`/api/orders/${currentOrderId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "preparing" }),
+        });
+        
+        orderId = currentOrderId;
+      } else {
+        // Crear nueva orden
+        console.log("🆕 Creando nueva orden");
+        const orderData = {
+          tableId: selectedTable?.id || null,
+          items: itemsData,
+          status: "preparing",
+          paymentMethod: null,
+          loyaltyCardId: null,
+          customerName: customerName || null,
+        };
+
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(orderData),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Error creating order");
+        }
+
+        const createdOrder = await res.json();
+        console.log("✅ Nueva orden creada:", createdOrder.id);
+        orderId = createdOrder.id;
+        setCurrentOrderId(orderId);
       }
       
       // Actualizar estado de la mesa a "occupied" solo si hay mesa seleccionada
@@ -1037,13 +1131,46 @@ export default function BarPage() {
   function removeFromCart(index: number) {
     const item = cart[index];
     
-    // No permitir eliminar items enviados a cocina
+    // Si el item fue enviado a cocina, pedir razón antes de eliminar
     if (item && item.sentToKitchen) {
-      toast.error("No se puede eliminar un item ya enviado a cocina");
+      setVoidItemIndex(index);
+      setVoidReason("");
+      setShowVoidDialog(true);
       return;
     }
     
     setCart(cart.filter((_, i) => i !== index));
+  }
+
+  async function handleVoidItem() {
+    if (voidItemIndex === null) return;
+    const item = cart[voidItemIndex];
+    if (!item) return;
+
+    try {
+      // Si el item tiene itemId en BD, marcarlo como voided
+      if (item.itemId) {
+        await fetch(`/api/orders/${item.orderId}/items/${item.itemId}/void`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            voidReason: voidReason || "Sin razón especificada",
+            voidedBy: employeeId,
+          }),
+        });
+      }
+
+      // Remover del carrito local
+      setCart(cart.filter((_, i) => i !== voidItemIndex));
+      toast.success(`Item eliminado: ${item.productName} — ${voidReason || "Sin razón"}`);
+    } catch (error) {
+      console.error("Error voiding item:", error);
+      toast.error("Error al eliminar item");
+    } finally {
+      setShowVoidDialog(false);
+      setVoidItemIndex(null);
+      setVoidReason("");
+    }
   }
 
   // Camera functions
@@ -1352,16 +1479,119 @@ export default function BarPage() {
     // Si ya existe una orden (items fueron enviados a cocina), usar esa orden para cobrar
     if (currentOrderId) {
       console.log("💰 Usando orden existente para cobrar:", currentOrderId);
-      // Ir directo a pago sin crear nueva orden
-      if (loyaltyCard) {
-        setShowingPayment(true);
-      } else {
-        setShowingLoyaltyStep(true);
+      
+      // Si hay items no enviados a cocina, agregarlos a la orden principal en BD
+      const unsentItems = cart.filter(item => !item.sentToKitchen && !item.itemId);
+      if (unsentItems.length > 0) {
+        try {
+          const res = await fetch(`/api/orders/${currentOrderId}/items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: unsentItems.map(item => ({
+                productId: item.productId,
+                productName: item.productName,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                notes: item.notes || null,
+                frostingId: item.frostingId || null,
+                frostingName: item.frostingName || null,
+                dryToppingId: item.dryToppingId || null,
+                dryToppingName: item.dryToppingName || null,
+                extraId: item.extraId || null,
+                extraName: item.extraName || null,
+                customModifiers: item.customModifiers || null,
+              })),
+            }),
+          });
+          if (res.ok) {
+            const updatedOrder = await res.json();
+            // Actualizar cart items con sus IDs de BD
+            const newDbItems = updatedOrder.items || [];
+            const updatedCart = cart.map(item => {
+              if (!item.sentToKitchen && !item.itemId) {
+                // Buscar el item correspondiente en la respuesta
+                const match = newDbItems.find((dbItem: any) => 
+                  dbItem.productId === item.productId && 
+                  !cart.some(ci => ci.itemId === dbItem.id)
+                );
+                if (match) {
+                  return { ...item, itemId: match.id, orderId: currentOrderId, sentToKitchen: true };
+                }
+              }
+              return item;
+            });
+            setCart(updatedCart);
+            console.log(`✅ ${unsentItems.length} items añadidos a orden ${currentOrderId}`);
+          }
+        } catch (e) {
+          console.error("Error adding unsent items to order:", e);
+        }
       }
+      
+      // Si hay split bill activo, ir directo a split-assign para asignar nuevos items
+      if (Object.keys(itemAssignments).length > 0) {
+        setPaymentStep("split-assign");
+        setShowingPayment(true);
+        toast.info("Asigna los nuevos productos a una persona");
+        return;
+      }
+      
+      // Ir directo a pago sin crear nueva orden
+      setPaymentStep("summary");
+      setShowingPayment(true);
       return;
     }
 
-    // Solo crear nueva orden si no hay una existente (items no enviados a cocina)
+    // Verificar si algún item ya tiene orderId (fue enviado a cocina previamente)
+    const existingOrderId = cart.find(item => item.orderId)?.orderId;
+    if (existingOrderId) {
+      console.log("💰 Encontrada orden existente en carrito:", existingOrderId);
+      setCurrentOrderId(existingOrderId);
+      
+      // Agregar items no enviados a la orden existente
+      const unsentItems = cart.filter(item => !item.sentToKitchen && !item.itemId);
+      if (unsentItems.length > 0) {
+        try {
+          const res = await fetch(`/api/orders/${existingOrderId}/items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: unsentItems.map(item => ({
+                productId: item.productId,
+                productName: item.productName,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                notes: item.notes || null,
+                frostingId: item.frostingId || null,
+                frostingName: item.frostingName || null,
+                dryToppingId: item.dryToppingId || null,
+                dryToppingName: item.dryToppingName || null,
+                extraId: item.extraId || null,
+                extraName: item.extraName || null,
+                customModifiers: item.customModifiers || null,
+              })),
+            }),
+          });
+          if (res.ok) {
+            const updatedCart = cart.map(item => 
+              !item.sentToKitchen && !item.itemId 
+                ? { ...item, orderId: existingOrderId, sentToKitchen: true } 
+                : item
+            );
+            setCart(updatedCart);
+          }
+        } catch (e) {
+          console.error("Error adding items:", e);
+        }
+      }
+      
+      setPaymentStep("summary");
+      setShowingPayment(true);
+      return;
+    }
+    
+    // Solo crear nueva orden si no hay ninguna existente
     setSubmitting(true);
     try {
       const orderData = {
@@ -1380,7 +1610,7 @@ export default function BarPage() {
           customModifiers: item.customModifiers,
         })),
         employeeId,
-        tableId: selectedTable?.id || null, // null para Para Llevar
+        tableId: selectedTable?.id || null,
         paymentStatus: "pending",
         loyaltyCardId: loyaltyCard?.id || null,
         customerName: customerName || loyaltyCard?.customerName || null,
@@ -1398,7 +1628,6 @@ export default function BarPage() {
       if (!res.ok) throw new Error();
       const order = await res.json();
       
-      // Actualizar estado de mesa a "occupied" solo si hay mesa
       if (selectedTable) {
         await fetch(`/api/tables/${selectedTable.id}`, {
           method: "PUT",
@@ -1408,12 +1637,11 @@ export default function BarPage() {
       }
       
       setCurrentOrderId(order.id);
-      // Si ya tiene cliente frecuente, ir directo a pago, si no, mostrar paso de loyalty
-      if (loyaltyCard) {
-        setShowingPayment(true);
-      } else {
-        setShowingLoyaltyStep(true);
-      }
+      // Marcar todos los items del carrito con el orderId para evitar duplicados
+      setCart(cart.map(item => ({ ...item, orderId: order.id, sentToKitchen: true, itemId: item.itemId || undefined })));
+      
+      setPaymentStep("summary");
+      setShowingPayment(true);
       toast.success(`Orden creada para ${orderType}`);
     } catch (error) {
       toast.error("Error creando orden");
@@ -1424,6 +1652,7 @@ export default function BarPage() {
 
   function skipLoyaltyAndProceedToPayment() {
     setShowingLoyaltyStep(false);
+    setPaymentStep("summary");
     setShowingPayment(true);
   }
 
@@ -1444,14 +1673,39 @@ export default function BarPage() {
           loyaltyCardId: loyaltyCard?.id || null,
           loyaltyStamps: 1,
           userId: employeeId,
-          tip: tipAmount, // Enviar propina al API
+          tip: tipAmount,
+          subtotal: cartTotal,
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error("❌ Error en pago:", errData);
+        throw new Error(errData.error || "Error en pago");
+      }
+      
+      // Para llevar: marcar todas las órdenes hermanas como pagadas también
+      if (!selectedTable) {
+        const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+        for (const siblingId of siblingOrderIds) {
+          await fetch(`/api/orders/${siblingId}/pay`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              paymentMethod: "cash",
+              loyaltyCardId: null,
+              loyaltyStamps: 0,
+              userId: employeeId,
+              tip: 0,
+              subtotal: 0,
+            }),
+          });
+        }
+      }
+      
       toast.success("Pago en efectivo registrado");
       setPaymentCompleted(true);
-    } catch {
-      toast.error("Error procesando pago");
+    } catch (err: any) {
+      toast.error(err?.message || "Error procesando pago");
     } finally {
       setProcessing(false);
     }
@@ -1474,14 +1728,39 @@ export default function BarPage() {
           loyaltyCardId: loyaltyCard?.id || null,
           loyaltyStamps: 1,
           userId: employeeId,
-          tip: tipAmount, // Enviar propina al API
+          tip: tipAmount,
+          subtotal: cartTotal,
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error("❌ Error en pago:", errData);
+        throw new Error(errData.error || "Error en pago");
+      }
+      
+      // Para llevar: marcar todas las órdenes hermanas como pagadas también
+      if (!selectedTable) {
+        const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+        for (const siblingId of siblingOrderIds) {
+          await fetch(`/api/orders/${siblingId}/pay`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              paymentMethod: "transfer",
+              loyaltyCardId: null,
+              loyaltyStamps: 0,
+              userId: employeeId,
+              tip: 0,
+              subtotal: 0,
+            }),
+          });
+        }
+      }
+      
       toast.success("Pago por transferencia registrado");
       setPaymentCompleted(true);
-    } catch {
-      toast.error("Error procesando pago");
+    } catch (err: any) {
+      toast.error(err?.message || "Error procesando pago");
     } finally {
       setProcessing(false);
     }
@@ -1499,12 +1778,22 @@ export default function BarPage() {
     setLoyaltyCard(null);
     setShowingPayment(false);
     setShowingLoyaltyStep(false);
+    setPaymentStep("summary");
     setPaymentMethod(null);
     setCashReceived("");
     setCurrentOrderId(null);
     setPaymentCompleted(false);
     setSelectedTable(null);
     setCustomerName("");
+    setTipPercentage(0);
+    setCustomTip("");
+    setShowCustomTip(false);
+    setSplitBillMode(false);
+    setItemAssignments({});
+    setIndividualPayments({});
+    setIndividualTips({});
+    setSplitPaymentMethod(null);
+    setSplitCashReceived("");
     setShowTableSelection(true);
     
     // Recargar delivery orders para quitar la orden completada
@@ -2241,840 +2530,877 @@ export default function BarPage() {
       </div>
 
       {/* VISTA DE PAGO O CATEGORÍAS/PRODUCTOS */}
-      {showingLoyaltyStep ? (
-        // Vista de Cliente Frecuente
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="w-full max-w-2xl space-y-6">
+      {/* LOYALTY STEP COMENTADO PARA FUTURO */}
+      {showingPayment && paymentStep === "split-assign" ? (
+        // PANTALLA: Asignar productos a personas
+        <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950">
+          <div className="w-full max-w-5xl space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-3xl font-bold">Cliente Frecuente</h2>
+              <h2 className="text-2xl font-bold text-white">Dividir Cuenta</h2>
               <Button 
                 variant="outline" 
-                onClick={() => {
-                  setShowingLoyaltyStep(false);
-                  setCurrentOrderId(null);
-                }}
-              >
-                ← Cancelar
-              </Button>
-            </div>
-
-            <Card>
-              <CardContent className="p-8 space-y-4">
-                <p className="text-muted-foreground text-center">
-                  ¿El cliente tiene tarjeta de cliente frecuente?
-                </p>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    onClick={() => setQrDialogOpen(true)}
-                    className="h-24 flex flex-col gap-2"
-                  >
-                    <QrCode className="size-8" />
-                    <span>Leer QR</span>
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    onClick={skipLoyaltyAndProceedToPayment}
-                    className="h-24 flex flex-col gap-2"
-                  >
-                    <X className="size-8" />
-                    <span>Sin tarjeta</span>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {loyaltyCard && (
-              <Card className="border-primary">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="font-semibold text-lg">{loyaltyCard.customerName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {loyaltyCard.stamps} sellos • {loyaltyCard.rewardsAvailable} recompensas
-                      </p>
-                    </div>
-                    <Button onClick={skipLoyaltyAndProceedToPayment} size="lg">
-                      Continuar →
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
-      ) : splitBillMode ? (
-        // Vista de División de Cuenta
-        <div className="flex-1 flex items-center justify-center p-8 bg-neutral-950">
-          <div className="w-full max-w-6xl space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-3xl font-bold text-white">Dividir Cuenta</h2>
-              <Button 
-                variant="outline" 
-                onClick={() => setSplitBillMode(false)}
+                onClick={() => setPaymentStep("summary")}
                 className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
               >
                 ← Regresar
               </Button>
             </div>
 
-            {/* Mensaje de todos pagados */}
-            {Object.values(individualPayments).every(p => p.paid) && (
-              <Card className="bg-neutral-900 border-green-600">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="bg-green-600 p-3 rounded-full">
-                      <Check className="size-8 text-white" weight="bold" />
+            {/* Navegación de personas */}
+            <div className="flex items-center justify-between">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPersonIndex(Math.max(0, currentPersonIndex - 1))}
+                disabled={currentPersonIndex === 0}
+                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30"
+              >
+                ← Anterior
+              </Button>
+              <div className="text-center">
+                <p className="text-white font-semibold">Persona {currentPersonIndex + 1} de {guestCount}</p>
+                <div className="flex gap-1 mt-2 justify-center">
+                  {Array.from({ length: guestCount }).map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`h-2 w-2 rounded-full ${
+                        idx === currentPersonIndex ? 'bg-blue-600' : 'bg-neutral-700'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setCurrentPersonIndex(Math.min(guestCount - 1, currentPersonIndex + 1))}
+                disabled={currentPersonIndex === guestCount - 1}
+                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30"
+              >
+                Siguiente →
+              </Button>
+            </div>
+
+            {/* Lista de productos con checkboxes para asignar */}
+            <Card className="bg-neutral-900 border-neutral-800">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-lg font-bold text-white">Persona {currentPersonIndex + 1}</h4>
+                  <span className="text-sm text-neutral-400">
+                    {(itemAssignments[currentPersonIndex] || []).length} items asignados
+                  </span>
+                </div>
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                  {cart.map((item, cartIndex) => {
+                    const assignedItems = itemAssignments[currentPersonIndex] || [];
+                    const isAssigned = assignedItems.includes(cartIndex);
+                    const itemsAssignedToOthers = Object.entries(itemAssignments)
+                      .filter(([idx]) => parseInt(idx) !== currentPersonIndex)
+                      .flatMap(([_, items]) => items);
+                    const isAssignedToOther = itemsAssignedToOthers.includes(cartIndex);
+
+                    return (
+                      <label
+                        key={cartIndex}
+                        className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                          isAssignedToOther
+                            ? 'opacity-40 cursor-not-allowed bg-neutral-950 border-neutral-800'
+                            : isAssigned 
+                            ? 'bg-blue-600/20 border-blue-600 cursor-pointer' 
+                            : 'bg-neutral-950 border-neutral-800 cursor-pointer hover:bg-neutral-900 hover:border-neutral-700'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isAssigned}
+                          disabled={isAssignedToOther}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setItemAssignments(prev => ({
+                                ...prev,
+                                [currentPersonIndex]: [...(prev[currentPersonIndex] || []), cartIndex]
+                              }));
+                            } else {
+                              setItemAssignments(prev => ({
+                                ...prev,
+                                [currentPersonIndex]: (prev[currentPersonIndex] || []).filter(i => i !== cartIndex)
+                              }));
+                            }
+                          }}
+                          className="size-5 cursor-pointer accent-blue-600"
+                        />
+                        <div className="flex-1 text-sm">
+                          <span className="text-white font-medium">{item.quantity}x {item.productName}</span>
+                          {isAssignedToOther && (
+                            <span className="text-xs text-neutral-500 ml-2">(asignado a otra persona)</span>
+                          )}
+                        </div>
+                        <span className="text-sm font-semibold text-blue-400">
+                          {formatCurrency(item.unitPrice * item.quantity)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Botón Confirmar División */}
+            {(() => {
+              const totalAssigned = Object.values(itemAssignments).flat().length;
+              const allAssigned = totalAssigned === cart.length;
+              return (
+                <Button
+                  onClick={() => {
+                    setPaymentStep("split-overview");
+                    saveSplitBillData(currentOrderId, itemAssignments, individualPayments, individualTips, guestCount, "split-overview");
+                  }}
+                  disabled={!allAssigned}
+                  className="w-full h-14 text-base font-semibold bg-green-600 hover:bg-green-700 text-white border-0 disabled:opacity-50"
+                >
+                  <Check className="mr-2 size-5" weight="bold" />
+                  {allAssigned 
+                    ? 'Confirmar Division' 
+                    : `Faltan ${cart.length - totalAssigned} items por asignar`
+                  }
+                </Button>
+              );
+            })()}
+          </div>
+        </div>
+      ) : showingPayment && paymentStep === "split-overview" ? (
+        // PANTALLA: Resumen de division — lista de personas con estado
+        <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950">
+          <div className="w-full max-w-lg space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-white">Cobro Dividido</h2>
+              <Button 
+                variant="outline" 
+                onClick={() => setPaymentStep("split-assign")}
+                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
+              >
+                ← Editar Division
+              </Button>
+            </div>
+
+            {/* Totales arriba */}
+            {(() => {
+              const totalPaid = Object.values(individualPayments).reduce((sum, p) => p.paid ? sum + p.amount : sum, 0);
+              const remaining = cartTotal - totalPaid;
+              return (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-3 text-center">
+                    <p className="text-xs text-neutral-400">Total</p>
+                    <p className="text-lg font-bold text-white">{formatCurrency(cartTotal)}</p>
+                  </div>
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-3 text-center">
+                    <p className="text-xs text-neutral-400">Pagado</p>
+                    <p className="text-lg font-bold text-green-400">{formatCurrency(totalPaid)}</p>
+                  </div>
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-3 text-center">
+                    <p className="text-xs text-neutral-400">Restante</p>
+                    <p className="text-lg font-bold text-yellow-400">{formatCurrency(Math.max(0, remaining))}</p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Lista de personas */}
+            <div className="space-y-2">
+              {Array.from({ length: guestCount }).map((_, idx) => {
+                const payment = individualPayments[idx];
+                const hasPaid = payment?.paid || false;
+                const assignedItems = itemAssignments[idx] || [];
+                const personTotal = assignedItems.reduce((sum, cartIndex) => {
+                  return sum + (cart[cartIndex]?.unitPrice || 0) * (cart[cartIndex]?.quantity || 0);
+                }, 0);
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => {
+                      if (!hasPaid) {
+                        setSelectedSplitPersonIndex(idx);
+                        setSplitPaymentMethod(null);
+                        setSplitCashReceived("");
+                        setPaymentStep("split-pay-person");
+                      }
+                    }}
+                    className={`flex items-center gap-3 p-4 rounded-lg border transition-all ${
+                      hasPaid 
+                        ? 'bg-green-600/10 border-green-600/30' 
+                        : 'bg-neutral-900 border-neutral-800 cursor-pointer hover:bg-neutral-800 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-full ${hasPaid ? 'bg-green-600' : 'bg-blue-600'}`}>
+                      <Users className="size-4 text-white" weight="fill" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-xl font-bold text-white">¡Todos han pagado!</p>
-                      <p className="text-neutral-400 text-sm">Total recaudado: {formatCurrency(
+                      <p className="text-sm font-semibold text-white">Persona {idx + 1}</p>
+                      <p className="text-xs text-neutral-400">{assignedItems.length} items</p>
+                    </div>
+                    <p className={`text-base font-bold ${hasPaid ? 'text-green-400' : 'text-white'}`}>
+                      {formatCurrency(hasPaid ? payment.amount : personTotal)}
+                    </p>
+                    {hasPaid ? (
+                      <Badge className="bg-green-600 text-white text-xs border-0">
+                        <Check className="size-3 mr-1" weight="bold" /> Pagado
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-yellow-600 text-white text-xs border-0">Pendiente</Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Auto-cierre: si todos pagaron */}
+            {Object.keys(individualPayments).length > 0 && Object.values(individualPayments).every(p => p.paid) && (
+              <div className="space-y-3">
+                <Card className="bg-green-600/10 border-green-600">
+                  <CardContent className="p-4 flex items-center gap-4">
+                    <div className="bg-green-600 p-3 rounded-full">
+                      <Check className="size-6 text-white" weight="bold" />
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-white">Todos han pagado</p>
+                      <p className="text-sm text-neutral-400">Total: {formatCurrency(
                         Object.values(individualPayments).reduce((sum, p) => sum + p.amount, 0)
                       )}</p>
                     </div>
-                  </div>
-                  <div className="mt-4">
-                    <p className="text-center text-xs text-neutral-400 mb-3">
-                      Desliza para confirmar y liberar mesa
-                    </p>
-                    <SlideToConfirm 
-                      onConfirm={async () => {
-                        if (!currentOrderId) return;
+                  </CardContent>
+                </Card>
+                <SlideToConfirm 
+                  onConfirm={async () => {
+                    if (!currentOrderId) return;
+                    setConfirmingOrder(true);
+                    try {
+                      // Construir resumen final por persona
+                      const splitSummary: { finalized: true, guestCount: number, persons: any[] } = {
+                        finalized: true,
+                        guestCount,
+                        persons: [],
+                      };
+                      let totalTips = 0;
+                      
+                      for (let i = 0; i < guestCount; i++) {
+                        const assignedItems = itemAssignments[i] || [];
+                        const personSubtotal = assignedItems.reduce((s, ci) => s + (cart[ci]?.unitPrice || 0) * (cart[ci]?.quantity || 0), 0);
+                        const tipData = individualTips[i] || { percentage: 0, custom: '', showCustom: false };
+                        const tipAmt = tipData.showCustom ? parseFloat(tipData.custom) || 0 : personSubtotal * tipData.percentage / 100;
+                        totalTips += tipAmt;
+                        const payment = individualPayments[i] || { paid: false, method: null, amount: 0 };
                         
-                        setConfirmingOrder(true);
-                        try {
-                          // Marcar orden como pagada y liberar mesa
-                          const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              paymentMethod: "cash", // Pago dividido se registra como cash
-                              loyaltyCardId: loyaltyCard?.id || null,
-                              loyaltyStamps: 1,
-                              userId: employeeId,
-                            }),
-                          });
-                          
-                          if (!res.ok) throw new Error();
-                          
-                          toast.success("Pago dividido completado - Mesa liberada");
-                          
-                          // Limpiar todo y volver a selección de mesas
-                          setCart([]);
-                          setLoyaltyCard(null);
-                          setSplitBillMode(false);
-                          setShowingPayment(false);
-                          setPaymentMethod(null);
-                          setCurrentOrderId(null);
-                          setPaymentCompleted(false);
-                          setSelectedTable(null);
-                          setCustomerName("");
-                          setGuestCount(1);
-                          setItemAssignments({});
-                          setIndividualPayments({});
-                          setIndividualTips({});
-                          setShowIndividualDetails(true);
-                          setShowTableSelection(true);
-                          
-                          // Recargar mesas para actualizar estados
-                          fetchTables();
-                        } catch {
-                          toast.error("Error procesando pago dividido");
-                        } finally {
-                          setConfirmingOrder(false);
-                        }
-                      }} 
-                      disabled={confirmingOrder} 
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Cards de personas pagadas - Card separada */}
-            {Object.values(individualPayments).some(p => p.paid) && (
-              <Card className="bg-neutral-900 border-neutral-800">
-                <CardContent className="p-4">
-                  <h3 className="text-sm font-semibold text-white mb-3">Pagos Registrados</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(individualPayments)
-                      .filter(([_, payment]) => payment.paid)
-                      .map(([index, payment]) => (
-                        <div
-                          key={index}
-                          className="bg-neutral-950 border border-green-600/30 rounded-lg p-3 flex items-center gap-3"
-                        >
-                          <div className="bg-green-600 p-2 rounded-full">
-                            <Users className="size-4 text-white" weight="fill" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm font-semibold text-white">Persona {parseInt(index) + 1}</p>
-                            <p className="text-xs text-green-400 font-bold">{formatCurrency(payment.amount)}</p>
-                          </div>
-                          <Check className="size-4 text-green-600" weight="bold" />
-                        </div>
-                      ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Carousel de personas - solo muestra personas NO pagadas */}
-            {!Object.values(individualPayments).every(p => p.paid) && (
-              <div className="space-y-4">
-                {/* Navegación del carousel */}
-                <div className="flex items-center justify-between">
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentPersonIndex(Math.max(0, currentPersonIndex - 1))}
-                  disabled={currentPersonIndex === 0}
-                  className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30"
-                >
-                  ← Anterior
-                </Button>
-                <div className="text-center">
-                  <p className="text-white font-semibold">Persona {currentPersonIndex + 1} de {guestCount}</p>
-                  <div className="flex gap-1 mt-2 justify-center">
-                    {Array.from({ length: guestCount }).map((_, idx) => (
-                      <div
-                        key={idx}
-                        className={`h-2 w-2 rounded-full ${
-                          idx === currentPersonIndex ? 'bg-blue-600' : 'bg-neutral-700'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentPersonIndex(Math.min(guestCount - 1, currentPersonIndex + 1))}
-                  disabled={currentPersonIndex === guestCount - 1}
-                  className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800 disabled:opacity-30"
-                >
-                  Siguiente →
-                </Button>
+                        splitSummary.persons.push({
+                          index: i,
+                          items: assignedItems.map(ci => ({
+                            name: cart[ci]?.productName,
+                            qty: cart[ci]?.quantity,
+                            price: (cart[ci]?.unitPrice || 0) * (cart[ci]?.quantity || 0),
+                          })),
+                          subtotal: personSubtotal,
+                          tipAmount: tipAmt,
+                          tipLabel: tipData.showCustom ? "Otro" : (tipData.percentage > 0 ? `${tipData.percentage}%` : "Sin"),
+                          total: personSubtotal + tipAmt,
+                          method: payment.method,
+                        });
+                      }
+                      
+                      const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          paymentMethod: "split",
+                          loyaltyCardId: loyaltyCard?.id || null,
+                          loyaltyStamps: 1,
+                          userId: employeeId,
+                          tip: totalTips,
+                          subtotal: cartTotal,
+                        }),
+                      });
+                      if (!res.ok) throw new Error();
+                      // Marcar órdenes hermanas como pagadas también
+                      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+                      for (const siblingId of siblingOrderIds) {
+                        await fetch(`/api/orders/${siblingId}/pay`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            paymentMethod: "split",
+                            loyaltyCardId: null,
+                            loyaltyStamps: 0,
+                            userId: employeeId,
+                            tip: 0,
+                            subtotal: 0,
+                          }),
+                        });
+                      }
+                      // Guardar resumen de split finalizado (no borrar — se usa en historial)
+                      await fetch(`/api/orders/${currentOrderId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ splitBillData: splitSummary }),
+                      });
+                      toast.success("Pago dividido completado - Mesa liberada");
+                      handleConfirmOrder();
+                    } catch {
+                      toast.error("Error procesando pago dividido");
+                    } finally {
+                      setConfirmingOrder(false);
+                    }
+                  }} 
+                  disabled={confirmingOrder} 
+                />
               </div>
+            )}
 
-              {/* Persona actual */}
-              {(() => {
-                const personIndex = currentPersonIndex;
-                const assignedItems = itemAssignments[personIndex] || [];
-                const personTotal = assignedItems.reduce((sum, cartIndex) => {
-                  return sum + (cart[cartIndex].unitPrice * cart[cartIndex].quantity);
-                }, 0);
-                
-                // Propina individual de esta persona
-                const personTipData = individualTips[personIndex] || { percentage: 0, custom: '', showCustom: false };
-                const personTip = personTipData.showCustom 
-                  ? parseFloat(personTipData.custom) || 0 
-                  : (personTotal * personTipData.percentage / 100);
-                const personFinalTotal = personTotal + personTip;
-                const hasPaid = individualPayments[personIndex]?.paid || false;
+            {/* Botón continuar orden — salir del cobro para añadir más items */}
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                // Guardar estado de split antes de salir
+                saveSplitBillData(currentOrderId, itemAssignments, individualPayments, individualTips, guestCount, "split-overview");
+                setShowingPayment(false);
+                setPaymentStep("summary");
+                toast.success("Puedes añadir más productos. Cuando termines, presiona Cobrar para continuar.");
+              }}
+              className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white border-0 font-semibold"
+            >
+              + Continuar Orden
+            </Button>
 
-                // Obtener todos los items asignados a OTRAS personas
-                const itemsAssignedToOthers = Object.entries(itemAssignments)
-                  .filter(([idx]) => parseInt(idx) !== personIndex)
-                  .flatMap(([_, items]) => items);
+            {/* Botón cancelar */}
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setPaymentStep("summary");
+              }}
+              className="w-full bg-neutral-900 border-neutral-800 text-neutral-400 hover:bg-neutral-800 hover:text-white"
+            >
+              Cancelar Cobro
+            </Button>
+          </div>
+        </div>
+      ) : showingPayment && paymentStep === "split-pay-person" ? (
+        // PANTALLA: Pago individual de una persona
+        <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950">
+          <div className="w-full max-w-lg space-y-3">
+            {(() => {
+              const pIdx = selectedSplitPersonIndex;
+              const assignedItems = itemAssignments[pIdx] || [];
+              const personTotal = assignedItems.reduce((sum, ci) => sum + (cart[ci]?.unitPrice || 0) * (cart[ci]?.quantity || 0), 0);
+              const tipData = individualTips[pIdx] || { percentage: 0, custom: '', showCustom: false };
+              const tipAmt = tipData.showCustom ? parseFloat(tipData.custom) || 0 : personTotal * tipData.percentage / 100;
+              const finalTotal = personTotal + tipAmt;
 
-                return (
-                  <Card 
-                    className={`bg-neutral-900 border-2 ${
-                      hasPaid 
-                        ? 'border-green-600' 
-                        : 'border-neutral-800'
-                    }`}
-                  >
-                    <CardContent className="p-6">
-                      {/* Header */}
-                      <div className="flex items-center justify-between mb-4 pb-4 border-b border-neutral-800">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-full ${hasPaid ? 'bg-green-600' : 'bg-blue-600'}`}>
-                            <Users className="size-5 text-white" weight="fill" />
+              return (
+                <>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-2xl font-bold text-white">Persona {pIdx + 1}</h2>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setPaymentStep("split-overview")}
+                      className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
+                    >
+                      ← Regresar
+                    </Button>
+                  </div>
+
+                  {/* Items asignados */}
+                  <Card className="bg-neutral-900 border-neutral-800">
+                    <CardContent className="p-4">
+                      <h4 className="text-sm font-semibold text-white mb-2">Productos</h4>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {assignedItems.map((ci) => (
+                          <div key={ci} className="flex justify-between text-sm py-1">
+                            <span className="text-white">{cart[ci]?.quantity}x {cart[ci]?.productName}</span>
+                            <span className="text-neutral-400">{formatCurrency((cart[ci]?.unitPrice || 0) * (cart[ci]?.quantity || 0))}</span>
                           </div>
-                          <h4 className="text-xl font-bold text-white">
-                            Persona {personIndex + 1}
-                          </h4>
-                        </div>
-                        {hasPaid && (
-                          <Badge className="bg-green-600 text-white border-0">
-                            <Check className="size-3 mr-1" weight="bold" />
-                            Pagado
-                          </Badge>
-                        )}
+                        ))}
                       </div>
+                    </CardContent>
+                  </Card>
 
-                      {/* Lista de items del carrito con checkboxes */}
-                      <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
-                        {cart.map((item, cartIndex) => {
-                          const isAssigned = assignedItems.includes(cartIndex);
-                          const isAssignedToOther = itemsAssignedToOthers.includes(cartIndex);
-                          const isDisabled = hasPaid || isAssignedToOther;
-
-                          return (
-                            <label
-                              key={cartIndex}
-                              className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
-                                isDisabled
-                                  ? 'opacity-40 cursor-not-allowed bg-neutral-950 border-neutral-800'
-                                  : isAssigned 
-                                  ? 'bg-blue-600/20 border-blue-600 cursor-pointer' 
-                                  : 'bg-neutral-950 border-neutral-800 cursor-pointer hover:bg-neutral-900 hover:border-neutral-700'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isAssigned}
-                                disabled={isDisabled}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setItemAssignments(prev => ({
-                                      ...prev,
-                                      [personIndex]: [...(prev[personIndex] || []), cartIndex]
-                                    }));
-                                  } else {
-                                    setItemAssignments(prev => ({
-                                      ...prev,
-                                      [personIndex]: (prev[personIndex] || []).filter(i => i !== cartIndex)
-                                    }));
-                                  }
-                                }}
-                                className="size-5 cursor-pointer accent-blue-600"
-                              />
-                              <div className="flex-1 text-sm">
-                                <span className="text-white font-medium">{item.quantity}x {item.productName}</span>
-                                {(item.frostingName || item.dryToppingName || item.extraName) && (
-                                  <div className="text-xs text-neutral-400 mt-1">
-                                    {item.frostingName && `• ${item.frostingName} `}
-                                    {item.dryToppingName && `• ${item.dryToppingName} `}
-                                    {item.extraName && `• ${item.extraName}`}
-                                  </div>
-                                )}
-                              </div>
-                              <span className="text-sm font-semibold text-blue-400">
-                                {formatCurrency(item.unitPrice * item.quantity)}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-
-                      {/* Controles de Propina Individual */}
-                      <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800 mb-3">
-                        <h4 className="text-sm font-semibold text-white mb-2">Propina (Servicio)</h4>
-                        <div className="grid grid-cols-3 gap-2 mb-2">
+                  {/* Propina individual */}
+                  <Card className="bg-neutral-900 border-neutral-800">
+                    <CardContent className="p-4">
+                      <h4 className="text-sm font-semibold text-white mb-2">Propina</h4>
+                      <div className="grid grid-cols-5 gap-2">
+                        {[0, 10, 15, 20].map(pct => (
                           <Button
+                            key={pct}
                             variant="outline"
                             size="sm"
-                            onClick={() => {
-                              setIndividualTips(prev => ({
-                                ...prev,
-                                [personIndex]: { percentage: 10, custom: '', showCustom: false }
-                              }));
-                            }}
+                            onClick={() => setIndividualTips(prev => ({ ...prev, [pIdx]: { percentage: pct, custom: '', showCustom: false } }))}
                             className={`h-10 text-sm font-semibold ${
-                              personTipData.percentage === 10 && !personTipData.showCustom
+                              tipData.percentage === pct && !tipData.showCustom
                                 ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
                                 : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
                             }`}
                           >
-                            10%
+                            {pct === 0 ? 'Sin' : `${pct}%`}
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setIndividualTips(prev => ({
-                                ...prev,
-                                [personIndex]: { percentage: 15, custom: '', showCustom: false }
-                              }));
-                            }}
-                            className={`h-10 text-sm font-semibold ${
-                              personTipData.percentage === 15 && !personTipData.showCustom
-                                ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
-                                : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
-                            }`}
-                          >
-                            15%
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setIndividualTips(prev => ({
-                                ...prev,
-                                [personIndex]: { percentage: 0, custom: '', showCustom: true }
-                              }));
-                            }}
-                            className={`h-10 text-sm font-semibold ${
-                              personTipData.showCustom
-                                ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
-                                : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
-                            }`}
-                          >
-                            Otro
-                          </Button>
-                        </div>
-                        {personTipData.showCustom && (
-                          <Input
-                            type="number"
-                            placeholder="0.00"
-                            value={personTipData.custom}
-                            onChange={(e) => {
-                              setIndividualTips(prev => ({
-                                ...prev,
-                                [personIndex]: { ...personTipData, custom: e.target.value }
-                              }));
-                            }}
-                            className="bg-neutral-950 border-neutral-800 text-white text-sm h-9"
-                          />
-                        )}
-                      </div>
-
-                      {/* Total de esta persona */}
-                      <div className="bg-neutral-950 rounded-lg p-4 border border-neutral-800 space-y-2">
-                        <div className="flex justify-between text-sm text-neutral-400">
-                          <span>Subtotal:</span>
-                          <span className="font-semibold">{formatCurrency(personTotal)}</span>
-                        </div>
-                        {personTip > 0 && (
-                          <div className="flex justify-between text-sm text-blue-400">
-                            <span>Propina {personTipData.showCustom ? '' : `(${personTipData.percentage}%)`}:</span>
-                            <span className="font-semibold">{formatCurrency(personTip)}</span>
-                          </div>
-                        )}
-                        <div className="border-t border-neutral-800 pt-2 mt-2"></div>
-                        <div className="flex justify-between text-xl font-bold text-white">
-                          <span>Total:</span>
-                          <span>{formatCurrency(personFinalTotal)}</span>
-                        </div>
-                      </div>
-
-                      {/* Botón de cobro individual */}
-                      {!hasPaid && assignedItems.length > 0 && (
+                        ))}
                         <Button
-                          onClick={() => {
-                            setIndividualPayments(prev => ({
-                              ...prev,
-                              [personIndex]: { paid: true, method: 'cash', amount: personFinalTotal }
-                            }));
-                            toast.success(`Persona ${personIndex + 1} - Pago registrado: ${formatCurrency(personFinalTotal)}`);
-                            
-                            // Avanzar al siguiente no pagado o volver al primero
-                            const nextUnpaidIndex = Array.from({ length: guestCount }).findIndex((_, idx) => 
-                              idx > personIndex && !individualPayments[idx]?.paid
-                            );
-                            if (nextUnpaidIndex !== -1) {
-                              setCurrentPersonIndex(nextUnpaidIndex);
-                            } else {
-                              setCurrentPersonIndex(0);
-                            }
-                          }}
-                          className="w-full mt-4 h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIndividualTips(prev => ({ ...prev, [pIdx]: { percentage: 0, custom: '', showCustom: true } }))}
+                          className={`h-10 text-sm font-semibold ${
+                            tipData.showCustom ? 'bg-blue-600 border-blue-500 text-white' : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                          }`}
                         >
-                          <Check className="mr-2 size-5" weight="bold" />
-                          Cobrar {formatCurrency(personFinalTotal)}
+                          Otro
                         </Button>
+                      </div>
+                      {tipData.showCustom && (
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          value={tipData.custom}
+                          onChange={(e) => setIndividualTips(prev => ({ ...prev, [pIdx]: { ...tipData, custom: e.target.value } }))}
+                          className="mt-2 bg-neutral-950 border-neutral-800 text-white h-10"
+                        />
                       )}
                     </CardContent>
                   </Card>
-                );
-              })()}
-            </div>
-            )}
+
+                  {/* Totales */}
+                  <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-sm text-neutral-400">
+                      <span>Subtotal:</span>
+                      <span className="font-semibold">{formatCurrency(personTotal)}</span>
+                    </div>
+                    {tipAmt > 0 && (
+                      <div className="flex justify-between text-sm text-blue-400">
+                        <span>Propina:</span>
+                        <span className="font-semibold">{formatCurrency(tipAmt)}</span>
+                      </div>
+                    )}
+                    <div className="border-t border-neutral-700 pt-2"></div>
+                    <div className="flex justify-between text-xl font-bold text-white">
+                      <span>Total:</span>
+                      <span>{formatCurrency(finalTotal)}</span>
+                    </div>
+                  </div>
+
+                  {/* Método de pago */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <Card
+                      className={`cursor-pointer transition-all hover:shadow-lg ${splitPaymentMethod === "cash" ? "ring-2 ring-green-500" : "bg-neutral-900 border-neutral-800"}`}
+                      onClick={() => setSplitPaymentMethod("cash")}
+                    >
+                      <CardContent className="flex flex-col items-center justify-center p-4">
+                        <Money className="mb-2 size-10 text-green-600" />
+                        <p className="text-sm font-semibold text-white">Efectivo</p>
+                      </CardContent>
+                    </Card>
+                    <Card
+                      className={`cursor-pointer transition-all hover:shadow-lg ${splitPaymentMethod === "terminal_mercadopago" ? "ring-2 ring-blue-500" : "bg-neutral-900 border-neutral-800"}`}
+                      onClick={() => setSplitPaymentMethod("terminal_mercadopago")}
+                    >
+                      <CardContent className="flex flex-col items-center justify-center p-4">
+                        <CreditCard className="mb-2 size-10 text-blue-600" />
+                        <p className="text-sm font-semibold text-white">Terminal</p>
+                      </CardContent>
+                    </Card>
+                    <Card
+                      className={`cursor-pointer transition-all hover:shadow-lg ${splitPaymentMethod === "transfer" ? "ring-2 ring-purple-500" : "bg-neutral-900 border-neutral-800"}`}
+                      onClick={() => setSplitPaymentMethod("transfer")}
+                    >
+                      <CardContent className="flex flex-col items-center justify-center p-4">
+                        <Bank className="mb-2 size-10 text-purple-600" />
+                        <p className="text-sm font-semibold text-white">Transferencia</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Efectivo: input recibido + cambio */}
+                  {splitPaymentMethod === "cash" && (
+                    <Card className="bg-neutral-900 border-neutral-800">
+                      <CardContent className="p-4 space-y-3">
+                        <Label className="text-white">Efectivo recibido</Label>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          value={splitCashReceived}
+                          onChange={(e) => setSplitCashReceived(e.target.value)}
+                          className="text-2xl font-bold bg-neutral-950 border-neutral-800 text-white"
+                          autoFocus
+                        />
+                        {parseFloat(splitCashReceived) > 0 && (
+                          <div className="flex justify-between rounded-lg bg-neutral-950 p-3">
+                            <span className="text-white">Cambio</span>
+                            <span className={`text-xl font-bold ${parseFloat(splitCashReceived) >= finalTotal ? 'text-green-400' : 'text-red-400'}`}>
+                              {formatCurrency(Math.max(0, parseFloat(splitCashReceived) - finalTotal))}
+                            </span>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Slide to confirm */}
+                  {splitPaymentMethod && (splitPaymentMethod !== "cash" || parseFloat(splitCashReceived) >= finalTotal) && (
+                    <SlideToConfirm 
+                      onConfirm={() => {
+                        const updatedPayments = {
+                          ...individualPayments,
+                          [pIdx]: { paid: true, method: splitPaymentMethod, amount: finalTotal }
+                        };
+                        setIndividualPayments(updatedPayments);
+                        // Persistir en BD
+                        saveSplitBillData(
+                          currentOrderId,
+                          itemAssignments,
+                          updatedPayments,
+                          individualTips,
+                          guestCount,
+                          "split-overview"
+                        );
+                        toast.success(`Persona ${pIdx + 1} - Pago registrado: ${formatCurrency(finalTotal)}`);
+                        setPaymentStep("split-overview");
+                      }} 
+                      disabled={false} 
+                    />
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
-      ) : showingPayment ? (
-        // Vista de Pago Inline
-        <div className="flex-1 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-5xl space-y-3 my-4">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-2xl font-bold">Procesar Pago</h2>
+      ) : showingPayment && paymentStep === "summary" ? (
+        // PANTALLA: Summary — Total, Pagado, Restante, Cobrar Todo / Dividir
+        <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950">
+          <div className="w-full max-w-md space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-white">Cobrar</h2>
               <Button 
                 variant="outline" 
                 onClick={() => {
                   setShowingPayment(false);
                   setPaymentMethod(null);
                   setCashReceived("");
-                  setWaitingForTerminal(false);
-                  setProcessing(false);
+                  setTipPercentage(0);
+                  setCustomTip("");
+                  setShowCustomTip(false);
                 }}
+                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
               >
                 ← Cancelar
               </Button>
             </div>
 
-            {/* Grid: Resumen + Propina en 2 columnas */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Resumen agrupado de items */}
-              <Card>
-                <CardContent className="p-3">
-                  <h3 className="font-semibold mb-2 text-sm">Resumen de la orden</h3>
-                  <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {(() => {
-                    // Agrupar items por productName + modificadores
-                    const groupedItems = cart.reduce((acc, item) => {
-                      const key = `${item.productName}-${item.frostingName || ''}-${item.dryToppingName || ''}-${item.extraName || ''}-${item.customModifiers || ''}`;
-                      if (!acc[key]) {
-                        acc[key] = { ...item, quantity: 0 };
-                      }
-                      acc[key].quantity += item.quantity;
-                      return acc;
-                    }, {} as Record<string, CartItem>);
-
-                    return Object.values(groupedItems).map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-sm py-1">
-                        <div className="flex-1">
-                          <span className="font-medium">{item.quantity} x {item.productName}</span>
-                          {(item.frostingName || item.dryToppingName || item.extraName) && (
-                            <div className="text-xs text-muted-foreground ml-4">
-                              {item.frostingName && `• ${item.frostingName} `}
-                              {item.dryToppingName && `• ${item.dryToppingName} `}
-                              {item.extraName && `• ${item.extraName}`}
-                            </div>
-                          )}
-                        </div>
-                        <span className="text-muted-foreground">
-                          {formatCurrency(item.unitPrice * item.quantity)}
-                        </span>
-                      </div>
-                    ));
-                  })()}
+            {/* Resumen de totales */}
+            <Card className="bg-neutral-900 border-neutral-800">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-neutral-400">Total de la orden</span>
+                  <span className="text-3xl font-bold text-white">{formatCurrency(cartTotal)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-neutral-400">Pagado</span>
+                  <span className="text-lg font-semibold text-green-400">{formatCurrency(0)}</span>
+                </div>
+                <div className="border-t border-neutral-700 pt-3 flex justify-between items-center">
+                  <span className="text-white font-medium">Restante</span>
+                  <span className="text-2xl font-bold text-yellow-400">{formatCurrency(cartTotal)}</span>
                 </div>
               </CardContent>
             </Card>
 
-              {/* Sección de Propina */}
-              <Card className="bg-neutral-900 border-neutral-800">
-                <CardContent className="p-3">
-                  <h3 className="font-semibold mb-2 text-sm text-white">Propina (Servicio)</h3>
-                
-                <div className="grid grid-cols-3 gap-2 mb-3">
+            {/* Botones de acción */}
+            <Button
+              onClick={() => {
+                setPaymentStep("payment");
+                setPaymentMethod(null);
+                setCashReceived("");
+              }}
+              className="w-full h-16 text-lg font-semibold bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Money className="mr-3 size-6" />
+              Cobrar Todo
+            </Button>
+
+            {guestCount > 1 && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (Object.keys(itemAssignments).length === 0) {
+                    const initialAssignments: Record<number, number[]> = {};
+                    const initialPayments: Record<number, { paid: boolean, method: string | null, amount: number }> = {};
+                    const initialTips: Record<number, { percentage: number, custom: string, showCustom: boolean }> = {};
+                    for (let i = 0; i < guestCount; i++) {
+                      initialAssignments[i] = [];
+                      initialPayments[i] = { paid: false, method: null, amount: 0 };
+                      initialTips[i] = { percentage: 0, custom: '', showCustom: false };
+                    }
+                    setItemAssignments(initialAssignments);
+                    setIndividualPayments(initialPayments);
+                    setIndividualTips(initialTips);
+                  }
+                  setCurrentPersonIndex(0);
+                  setPaymentStep("split-assign");
+                }}
+                className="w-full h-14 text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white border-0"
+              >
+                <Users className="mr-2 size-5" weight="fill" />
+                Dividir Cuenta ({guestCount} personas)
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : showingPayment && paymentStep === "payment" ? (
+        // PANTALLA: Seleccionar método de pago + propina
+        <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950">
+          <div className="w-full max-w-lg space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-white">Pago</h2>
+              <Button 
+                variant="outline" 
+                onClick={() => setPaymentStep("summary")}
+                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
+              >
+                ← Regresar
+              </Button>
+            </div>
+
+            {/* Propina */}
+            <Card className="bg-neutral-900 border-neutral-800">
+              <CardContent className="p-4">
+                <h4 className="text-sm font-semibold text-white mb-3">Propina (Servicio)</h4>
+                <div className="grid grid-cols-5 gap-2">
+                  {[0, 10, 15, 20].map(pct => (
+                    <Button
+                      key={pct}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setTipPercentage(pct); setCustomTip(""); setShowCustomTip(false); }}
+                      className={`h-10 text-sm font-semibold ${
+                        tipPercentage === pct && !showCustomTip
+                          ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
+                          : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                      }`}
+                    >
+                      {pct === 0 ? 'Sin' : `${pct}%`}
+                    </Button>
+                  ))}
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      setTipPercentage(10);
-                      setCustomTip("");
-                      setShowCustomTip(false);
-                    }}
-                    className={`h-12 text-base font-semibold ${
-                      tipPercentage === 10 && !showCustomTip
-                        ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
-                        : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
-                    }`}
-                  >
-                    10%
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setTipPercentage(15);
-                      setCustomTip("");
-                      setShowCustomTip(false);
-                    }}
-                    className={`h-12 text-base font-semibold ${
-                      tipPercentage === 15 && !showCustomTip
-                        ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
-                        : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
-                    }`}
-                  >
-                    15%
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowCustomTip(true);
-                      setTipPercentage(0);
-                    }}
-                    className={`h-12 text-base font-semibold ${
-                      showCustomTip
-                        ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700'
-                        : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
+                    size="sm"
+                    onClick={() => { setShowCustomTip(true); setTipPercentage(0); }}
+                    className={`h-10 text-sm font-semibold ${
+                      showCustomTip ? 'bg-blue-600 border-blue-500 text-white' : 'bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700'
                     }`}
                   >
                     Otro
                   </Button>
                 </div>
-
                 {showCustomTip && (
-                  <div className="mb-3">
-                    <Label className="text-neutral-400 text-xs mb-1 block">Monto personalizado</Label>
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={customTip}
-                      onChange={(e) => setCustomTip(e.target.value)}
-                      className="bg-neutral-950 border-neutral-800 text-white text-base h-10"
-                    />
-                  </div>
-                )}
-
-                {(tipPercentage > 0 || (showCustomTip && parseFloat(customTip) > 0)) && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setTipPercentage(0);
-                      setCustomTip("");
-                      setShowCustomTip(false);
-                    }}
-                    className="w-full bg-neutral-800 border-neutral-700 text-neutral-400 hover:bg-neutral-700 hover:text-white"
-                  >
-                    Sin propina
-                  </Button>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={customTip}
+                    onChange={(e) => setCustomTip(e.target.value)}
+                    className="mt-2 bg-neutral-950 border-neutral-800 text-white h-10"
+                  />
                 )}
               </CardContent>
             </Card>
-            </div>
 
-            {/* Total + División en Grid */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* Total de la orden */}
-              <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-3">
-                <div className="space-y-2">
-                  {/* Subtotal */}
-                  <div className="flex items-center justify-between text-neutral-400 text-sm">
+            {/* Total con propina */}
+            {(() => {
+              const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
+              const totalWithTip = cartTotal + tipAmt;
+              return (
+                <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between text-sm text-neutral-400">
                     <span>Subtotal:</span>
-                    <span className="font-semibold">{formatCurrency(cartTotal)}</span>
+                    <span>{formatCurrency(cartTotal)}</span>
                   </div>
-                  
-                  {/* Propina si existe */}
-                  {(() => {
-                    const tipAmount = showCustomTip 
-                      ? parseFloat(customTip) || 0 
-                      : (cartTotal * tipPercentage / 100);
-                    
-                    if (tipAmount > 0) {
-                      return (
-                        <div className="flex items-center justify-between text-blue-400 text-sm">
-                          <span>
-                            Propina {showCustomTip ? '' : `(${tipPercentage}%)`}:
-                          </span>
-                          <span className="font-semibold">{formatCurrency(tipAmount)}</span>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                  
-                  {/* Divider */}
-                  <div className="border-t border-neutral-700"></div>
-                  
-                  {/* Total Final */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-base font-medium text-white">Total a pagar:</span>
-                    <span className="text-2xl font-bold text-white">
-                      {formatCurrency(
-                        cartTotal + (showCustomTip 
-                          ? parseFloat(customTip) || 0 
-                          : (cartTotal * tipPercentage / 100))
-                      )}
-                    </span>
-                  </div>
-                  
-                  {loyaltyCard && (
-                    <p className="text-xs text-neutral-400 mt-2">
-                      Cliente: {loyaltyCard.customerName} • Se agregará 1 sello
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Indicador de División de Cuenta */}
-              {Object.keys(individualPayments).length > 0 ? (
-                <Card className="bg-neutral-900 border-neutral-800">
-                  <CardContent className="p-3">
-                    <div className="flex flex-col justify-center h-full">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Users className="size-4 text-blue-400" weight="fill" />
-                          <p className="text-sm font-semibold text-white">División de Cuenta</p>
-                        </div>
-                        {Object.values(individualPayments).every(p => p.paid) ? (
-                          <Badge className="bg-green-600 text-white text-xs">
-                            <Check className="size-3 mr-1" weight="bold" />
-                            Completo
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-yellow-600 text-white text-xs">
-                            Pendiente
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-neutral-400">
-                        {Object.values(individualPayments).filter(p => p.paid).length} de {guestCount} {guestCount === 1 ? 'persona ha' : 'personas han'} pagado
-                      </p>
+                  {tipAmt > 0 && (
+                    <div className="flex justify-between text-sm text-blue-400">
+                      <span>Propina:</span>
+                      <span>{formatCurrency(tipAmt)}</span>
                     </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div></div>
-              )}
+                  )}
+                  <div className="border-t border-neutral-700 pt-2"></div>
+                  <div className="flex justify-between text-xl font-bold text-white">
+                    <span>Total:</span>
+                    <span>{formatCurrency(totalWithTip)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Métodos de pago */}
+            <div className="grid grid-cols-3 gap-3">
+              <Card
+                className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "cash" ? "ring-2 ring-green-500" : "bg-neutral-900 border-neutral-800"}`}
+                onClick={() => setPaymentMethod("cash")}
+              >
+                <CardContent className="flex flex-col items-center justify-center p-4">
+                  <Money className="mb-2 size-10 text-green-600" />
+                  <p className="text-sm font-semibold text-white">Efectivo</p>
+                </CardContent>
+              </Card>
+              <Card
+                className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "terminal_mercadopago" ? "ring-2 ring-blue-500" : "bg-neutral-900 border-neutral-800"}`}
+                onClick={() => setPaymentMethod("terminal_mercadopago")}
+              >
+                <CardContent className="flex flex-col items-center justify-center p-4">
+                  <CreditCard className="mb-2 size-10 text-blue-600" />
+                  <p className="text-sm font-semibold text-white">Terminal</p>
+                </CardContent>
+              </Card>
+              <Card
+                className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "transfer" ? "ring-2 ring-purple-500" : "bg-neutral-900 border-neutral-800"}`}
+                onClick={() => setPaymentMethod("transfer")}
+              >
+                <CardContent className="flex flex-col items-center justify-center p-4">
+                  <Bank className="mb-2 size-10 text-purple-600" />
+                  <p className="text-sm font-semibold text-white">Transferencia</p>
+                </CardContent>
+              </Card>
             </div>
 
-            {/* Botón Dividir Cuenta - solo si hay más de 1 persona */}
-            {!paymentCompleted && guestCount > 1 && (
-              <div className="max-w-md mx-auto">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    // Solo inicializar si no hay datos previos (persistencia)
-                    if (Object.keys(itemAssignments).length === 0) {
-                      const initialAssignments: Record<number, number[]> = {};
-                      const initialPayments: Record<number, { paid: boolean, method: string | null, amount: number }> = {};
-                      const initialTips: Record<number, { percentage: number, custom: string, showCustom: boolean }> = {};
-                      for (let i = 0; i < guestCount; i++) {
-                        initialAssignments[i] = [];
-                        initialPayments[i] = { paid: false, method: null, amount: 0 };
-                        initialTips[i] = { percentage: 0, custom: '', showCustom: false };
-                      }
-                      setItemAssignments(initialAssignments);
-                      setIndividualPayments(initialPayments);
-                      setIndividualTips(initialTips);
-                    }
-                    setCurrentPersonIndex(0);
-                    setSplitBillMode(true);
-                  }}
-                  className="w-full h-14 text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white border-0"
-                >
-                  <Users className="mr-2 size-5" weight="fill" />
-                  {Object.keys(individualPayments).length > 0 ? 'Continuar División' : 'Dividir Cuenta'} ({guestCount} {guestCount === 1 ? 'persona' : 'personas'})
-                </Button>
-              </div>
-            )}
-
-            {/* Vista de confirmación con slide button */}
-            {paymentCompleted ? (
-              <div className="space-y-6">
-                <Card className="border-green-500 bg-green-500/10">
-                  <CardContent className="flex flex-col items-center justify-center p-8">
-                    <Check className="mb-4 size-20 text-green-600" weight="bold" />
-                    <p className="text-2xl font-bold mb-2">Pago Completado</p>
-                    <p className="text-muted-foreground">
-                      {paymentMethod === "cash" && "Efectivo recibido"}
-                      {paymentMethod === "transfer" && "Transferencia confirmada"}
-                      {paymentMethod === "terminal_mercadopago" && "Pago con terminal confirmado"}
-                    </p>
-                    <p className="text-3xl font-bold mt-4">{formatCurrency(
-                      cartTotal + (showCustomTip 
-                        ? parseFloat(customTip) || 0 
-                        : (cartTotal * tipPercentage / 100))
-                    )}</p>
-                  </CardContent>
-                </Card>
-
-                <div>
-                  <p className="text-center text-sm text-muted-foreground mb-4">
-                    Desliza para confirmar y liberar mesa
-                  </p>
-                  <SlideToConfirm onConfirm={handleConfirmOrder} disabled={confirmingOrder} />
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Card
-                  className={`cursor-pointer transition-all hover:shadow-lg ${
-                    paymentMethod === "cash" ? "ring-2 ring-primary" : ""
-                  }`}
-                  onClick={() => setPaymentMethod("cash")}
-                >
-                  <CardContent className="flex flex-col items-center justify-center p-6">
-                    <Money className="mb-3 size-16 text-green-600" />
-                    <p className="text-lg font-semibold">Efectivo</p>
-                  </CardContent>
-                </Card>
-
-                <Card
-                  className={`cursor-pointer transition-all hover:shadow-lg ${
-                    paymentMethod === "terminal_mercadopago" ? "ring-2 ring-primary" : ""
-                  }`}
-                  onClick={() => setPaymentMethod("terminal_mercadopago")}
-                >
-                  <CardContent className="flex flex-col items-center justify-center p-6">
-                    <CreditCard className="mb-3 size-16 text-blue-600" />
-                    <p className="text-lg font-semibold">Terminal</p>
-                  </CardContent>
-                </Card>
-
-                <Card
-                  className={`cursor-pointer transition-all hover:shadow-lg ${
-                    paymentMethod === "transfer" ? "ring-2 ring-primary" : ""
-                  }`}
-                  onClick={() => setPaymentMethod("transfer")}
-                >
-                  <CardContent className="flex flex-col items-center justify-center p-6">
-                    <Bank className="mb-3 size-16 text-purple-600" />
-                    <p className="text-lg font-semibold">Transferencia</p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {/* Detalles de pago en efectivo */}
-            {paymentMethod === "cash" && !processing && (
-              <Card>
-                <CardContent className="space-y-4 p-6">
-                  <div>
-                    <Label className="text-base font-medium">Efectivo recibido</Label>
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={cashReceived}
-                      onChange={(e) => setCashReceived(e.target.value)}
-                      className="mt-2 text-3xl font-bold"
-                      autoFocus
-                    />
-                  </div>
-                  {parseFloat(cashReceived) > 0 && (
-                    <div className="flex items-center justify-between rounded-lg bg-muted p-4">
-                      <span className="text-lg font-medium">Cambio</span>
-                      <span
-                        className={`text-2xl font-bold ${
-                          parseFloat(cashReceived) - cartTotal >= 0 
-                            ? "text-green-600" 
-                            : "text-destructive"
-                        }`}
-                      >
-                        {formatCurrency(Math.max(0, parseFloat(cashReceived) - cartTotal))}
-                      </span>
-                    </div>
-                  )}
+            {/* Efectivo: recibido + cambio */}
+            {paymentMethod === "cash" && (
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardContent className="p-4 space-y-3">
+                  <Label className="text-white">Efectivo recibido</Label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={cashReceived}
+                    onChange={(e) => setCashReceived(e.target.value)}
+                    className="text-2xl font-bold bg-neutral-950 border-neutral-800 text-white"
+                    autoFocus
+                  />
+                  {(() => {
+                    const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
+                    const totalWithTip = cartTotal + tipAmt;
+                    return parseFloat(cashReceived) > 0 ? (
+                      <div className="flex justify-between rounded-lg bg-neutral-950 p-3">
+                        <span className="text-white">Cambio</span>
+                        <span className={`text-xl font-bold ${parseFloat(cashReceived) >= totalWithTip ? 'text-green-400' : 'text-red-400'}`}>
+                          {formatCurrency(Math.max(0, parseFloat(cashReceived) - totalWithTip))}
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
                 </CardContent>
               </Card>
             )}
 
-            {/* Botón de pago */}
-            {paymentMethod && !paymentCompleted && (
+            {/* Botón continuar a confirmación */}
+            {paymentMethod && (
               <Button
                 size="lg"
-                className="w-full text-xl py-8"
-                disabled={
-                  processing ||
-                  (paymentMethod === "cash" && parseFloat(cashReceived) < cartTotal)
-                }
-                onClick={
-                  paymentMethod === "cash" 
-                    ? handlePayCash 
-                    : paymentMethod === "transfer"
-                    ? handlePayTransfer
-                    : handlePayTerminal
-                }
+                className="w-full h-14 text-lg font-semibold"
+                disabled={paymentMethod === "cash" && (() => {
+                  const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
+                  return parseFloat(cashReceived) < cartTotal + tipAmt;
+                })()}
+                onClick={() => setPaymentStep("confirmation")}
               >
-                {processing ? (
-                  <>
-                    <Spinner className="mr-2 size-6 animate-spin" />
-                    Procesando...
-                  </>
-                ) : (
-                  <>
-                    <Check className="mr-2 size-6" />
-                    Cobrar {formatCurrency(cartTotal)}
-                  </>
-                )}
+                Continuar →
               </Button>
             )}
+          </div>
+        </div>
+      ) : showingPayment && paymentStep === "confirmation" ? (
+        // PANTALLA: Confirmación final + Slide to confirm
+        <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950">
+          <div className="w-full max-w-md space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-white">Confirmar Pago</h2>
+              <Button 
+                variant="outline" 
+                onClick={() => setPaymentStep("payment")}
+                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
+              >
+                ← Regresar
+              </Button>
+            </div>
+
+            {/* Resumen final */}
+            {(() => {
+              const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
+              const totalWithTip = cartTotal + tipAmt;
+              return (
+                <Card className="bg-neutral-900 border-neutral-800">
+                  <CardContent className="p-6 space-y-3">
+                    <div className="flex justify-between text-sm text-neutral-400">
+                      <span>Subtotal:</span>
+                      <span>{formatCurrency(cartTotal)}</span>
+                    </div>
+                    {tipAmt > 0 && (
+                      <div className="flex justify-between text-sm text-blue-400">
+                        <span>Propina:</span>
+                        <span>{formatCurrency(tipAmt)}</span>
+                      </div>
+                    )}
+                    <div className="border-t border-neutral-700 pt-3"></div>
+                    <div className="flex justify-between text-2xl font-bold text-white">
+                      <span>Total:</span>
+                      <span>{formatCurrency(totalWithTip)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-sm text-neutral-400">Método:</span>
+                      <Badge className="bg-neutral-800 text-white border-0">
+                        {paymentMethod === "cash" ? "Efectivo" : paymentMethod === "transfer" ? "Transferencia" : "Terminal"}
+                      </Badge>
+                    </div>
+                    {paymentMethod === "cash" && parseFloat(cashReceived) > 0 && (
+                      <div className="flex justify-between text-sm text-green-400 mt-1">
+                        <span>Cambio:</span>
+                        <span className="font-semibold">{formatCurrency(Math.max(0, parseFloat(cashReceived) - totalWithTip))}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* Slide to confirm */}
+            <SlideToConfirm 
+              onConfirm={async () => {
+                if (paymentMethod === "cash") {
+                  await handlePayCash();
+                } else if (paymentMethod === "transfer") {
+                  await handlePayTransfer();
+                }
+                // handlePayCash/Transfer ya llaman setPaymentCompleted(true)
+                // y después mostramos la pantalla done
+                setPaymentStep("done");
+              }} 
+              disabled={processing} 
+            />
+          </div>
+        </div>
+      ) : showingPayment && paymentStep === "done" ? (
+        // PANTALLA: Pago completado
+        <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950">
+          <div className="w-full max-w-md space-y-4">
+            <Card className="border-green-600 bg-green-600/10">
+              <CardContent className="flex flex-col items-center justify-center p-8">
+                <Check className="mb-4 size-20 text-green-600" weight="bold" />
+                <p className="text-2xl font-bold text-white mb-2">Pago Completado</p>
+                <p className="text-neutral-400">
+                  {paymentMethod === "cash" && "Efectivo recibido"}
+                  {paymentMethod === "transfer" && "Transferencia confirmada"}
+                  {paymentMethod === "terminal_mercadopago" && "Pago con terminal confirmado"}
+                </p>
+                <p className="text-3xl font-bold text-white mt-4">{formatCurrency(
+                  cartTotal + (showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100)
+                )}</p>
+              </CardContent>
+            </Card>
+
+            <Button
+              onClick={handleConfirmOrder}
+              className="w-full h-14 text-lg font-semibold bg-green-600 hover:bg-green-700 text-white"
+            >
+              Finalizar
+            </Button>
           </div>
         </div>
       ) : (
@@ -3472,12 +3798,74 @@ export default function BarPage() {
             <Button variant="outline" onClick={() => setShowGuestCountDialog(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => {
+            <Button onClick={async () => {
               setGuestCount(tempGuestCount);
               setShowGuestCountDialog(false);
               toast.success(`Número de personas actualizado: ${tempGuestCount}`);
+              // Persistir en BD si hay mesa seleccionada
+              if (selectedTable) {
+                try {
+                  await fetch(`/api/tables/${selectedTable.id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ guestCount: tempGuestCount }),
+                  });
+                } catch (e) {
+                  console.error("Error persisting guestCount:", e);
+                }
+              }
             }}>
               Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Eliminar Item de Cocina con Razón */}
+      <Dialog open={showVoidDialog} onOpenChange={setShowVoidDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar Item de Cocina</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {voidItemIndex !== null && cart[voidItemIndex] && (
+              <p className="text-sm text-muted-foreground">
+                Eliminar: <strong>{cart[voidItemIndex].quantity}x {cart[voidItemIndex].productName}</strong>
+              </p>
+            )}
+            <div>
+              <Label className="text-sm font-medium">Razón de eliminación</Label>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {["Cliente cambió de opinión", "Error del mesero", "Producto agotado", "Problema de calidad"].map((reason) => (
+                  <Button
+                    key={reason}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setVoidReason(reason)}
+                    className={`text-xs ${voidReason === reason ? 'bg-blue-600 text-white border-blue-500' : ''}`}
+                  >
+                    {reason}
+                  </Button>
+                ))}
+              </div>
+              <Input
+                placeholder="Otra razón..."
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+                className="mt-2"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowVoidDialog(false); setVoidItemIndex(null); }}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!voidReason.trim()}
+              onClick={handleVoidItem}
+            >
+              Eliminar Item
             </Button>
           </DialogFooter>
         </DialogContent>

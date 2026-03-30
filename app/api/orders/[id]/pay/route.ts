@@ -20,7 +20,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId, tip } = body;
+    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId, tip, subtotal: frontendSubtotal } = body;
 
     // Get the order
     const order = await db.query.orders.findFirst({
@@ -38,8 +38,8 @@ export async function POST(
 
     // Calcular nuevo total con propina si existe
     const tipAmount = tip || 0;
-    const originalTotal = parseFloat(order.total);
-    const newTotal = originalTotal + tipAmount;
+    const orderSubtotal = frontendSubtotal || parseFloat(order.total);
+    const newTotal = orderSubtotal + tipAmount;
 
     if (paymentMethod === "terminal_mercadopago") {
       // Validate minimum amount for Mercado Pago (500 cents = $5.00 MXN)
@@ -95,20 +95,24 @@ export async function POST(
           paymentMethod: paymentMethod, // "cash" or "transfer"
           paymentStatus: "paid",
           status: "delivered", // Mark as delivered so it doesn't reappear when reopening the table
-          total: newTotal.toString(), // Actualizar total con propina incluida
+          subtotal: orderSubtotal.toString(),
+          tip: tipAmount.toString(),
+          total: newTotal.toString(), // subtotal + tip
           loyaltyCardId: loyaltyCardId || null,
           userId: userId || null,
           updatedAt: new Date(),
         })
         .where(eq(orders.id, id));
 
-      // Si la orden tiene mesa, marcar TODAS las órdenes activas de esa mesa como delivered y liberar mesa
+      // Si la orden tiene mesa, marcar TODAS las órdenes activas de esa mesa como delivered+paid y liberar mesa
       if (order.tableId) {
-        console.log(`🏓 Liberando mesa ${order.tableId} - marcando todas las órdenes activas como delivered`);
+        console.log(`🏓 Liberando mesa ${order.tableId} - marcando todas las órdenes activas como delivered+paid`);
         await db
           .update(orders)
           .set({
             status: "delivered",
+            paymentStatus: "paid",
+            paymentMethod: paymentMethod,
             updatedAt: new Date(),
           })
           .where(
@@ -120,7 +124,7 @@ export async function POST(
 
         await db
           .update(tables)
-          .set({ status: "available" })
+          .set({ status: "available", guestCount: 1 })
           .where(eq(tables.id, order.tableId));
         console.log(`✅ Mesa ${order.tableId} liberada`);
       }
@@ -135,18 +139,30 @@ export async function POST(
       await db.insert(cashRegisterTransactions).values({
         registerId: currentRegister.id,
         type: "sale",
-        amount: order.total,
+        amount: newTotal.toString(),
         orderId: order.id,
-        description: `Orden #${order.orderNumber}`,
+        paymentMethod: paymentMethod || "cash",
+        description: `Orden #${order.orderNumber}${tipAmount > 0 ? ` (propina: $${tipAmount.toFixed(2)})` : ''}`,
       });
 
-      // Update register totals
+      // Update register totals with correct payment method breakdown
+      const updateData: Record<string, any> = {
+        totalSales: sql`COALESCE(${cashRegisters.totalSales}, 0) + ${newTotal}`,
+        totalOrders: sql`COALESCE(${cashRegisters.totalOrders}, 0) + 1`,
+      };
+      if (paymentMethod === "cash") {
+        updateData.cashSales = sql`COALESCE(${cashRegisters.cashSales}, 0) + ${newTotal}`;
+      } else if (paymentMethod === "transfer") {
+        updateData.transferSales = sql`COALESCE(${cashRegisters.transferSales}, 0) + ${newTotal}`;
+      } else if (paymentMethod === "terminal_mercadopago") {
+        updateData.terminalSales = sql`COALESCE(${cashRegisters.terminalSales}, 0) + ${newTotal}`;
+      } else if (paymentMethod === "split") {
+        // Split bills: total goes to cashSales as default (individual methods vary)
+        updateData.cashSales = sql`COALESCE(${cashRegisters.cashSales}, 0) + ${newTotal}`;
+      }
       await db
         .update(cashRegisters)
-        .set({
-          totalSales: sql`COALESCE(${cashRegisters.totalSales}, 0) + ${parseFloat(order.total)}`,
-          totalOrders: sql`COALESCE(${cashRegisters.totalOrders}, 0) + 1`,
-        })
+        .set(updateData)
         .where(eq(cashRegisters.id, currentRegister.id));
     }
 

@@ -31,6 +31,7 @@ export const paymentMethodEnum = pgEnum("payment_method", [
   "terminal_mercadopago",
   "card",
   "transfer",
+  "split",
 ]);
 export const cashRegisterStatusEnum = pgEnum("cash_register_status", [
   "open",
@@ -209,6 +210,8 @@ export const orders = pgTable("orders", {
   id: uuid("id").defaultRandom().primaryKey(),
   orderNumber: integer("order_number").notNull(),
   status: orderStatusEnum("status").notNull().default("pending"),
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
+  tip: decimal("tip", { precision: 10, scale: 2 }).notNull().default("0"),
   total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
   paymentStatus: paymentStatusEnum("payment_status").notNull().default("pending"),
   paymentMethod: paymentMethodEnum("payment_method"),
@@ -220,6 +223,7 @@ export const orders = pgTable("orders", {
   notes: text("notes"),
   loyaltyCardId: uuid("loyalty_card_id").references(() => loyaltyCards.id),
   cashRegisterId: uuid("cash_register_id").references(() => cashRegisters.id),
+  splitBillData: text("split_bill_data"), // JSON: { itemAssignments, individualPayments, individualTips, guestCount }
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -246,6 +250,9 @@ export const orderItems = pgTable("order_items", {
   extraName: varchar("extra_name", { length: 255 }),
   customModifiers: text("custom_modifiers"), // JSON string with custom modifier selections
   deliveredToTable: boolean("delivered_to_table").notNull().default(false), // Track if item was delivered to table
+  voided: boolean("voided").notNull().default(false),
+  voidReason: text("void_reason"),
+  voidedBy: uuid("voided_by").references(() => userProfiles.id),
 });
 
 // Order payments (for split payments)
@@ -271,6 +278,7 @@ export const tables = pgTable("tables", {
   number: varchar("number", { length: 50 }).notNull().unique(),
   name: varchar("name", { length: 255 }),
   capacity: integer("capacity").notNull().default(4),
+  guestCount: integer("guest_count").notNull().default(1),
   status: tableStatusEnum("status").notNull().default("available"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
