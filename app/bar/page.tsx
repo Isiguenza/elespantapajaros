@@ -757,52 +757,34 @@ export default function BarPage() {
     }));
 
     try {
-      let orderId: string;
+      // Siempre crear nueva orden para que cocina solo vea los items nuevos
+      console.log("🆕 Creando orden para cocina con", pendingItems.length, "items nuevos");
+      const orderData = {
+        tableId: selectedTable?.id || null,
+        items: itemsData,
+        status: "preparing",
+        paymentMethod: null,
+        loyaltyCardId: null,
+        customerName: customerName || null,
+      };
+
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderData),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Error creating order");
+      }
+
+      const createdOrder = await res.json();
+      console.log("✅ Orden creada:", createdOrder.id);
+      const orderId = createdOrder.id;
       
-      if (currentOrderId) {
-        // Agregar items a la orden existente
-        console.log("➕ Agregando items a orden existente:", currentOrderId);
-        const res = await fetch(`/api/orders/${currentOrderId}/items`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: itemsData }),
-        });
-        if (!res.ok) throw new Error("Error adding items to order");
-        
-        // Actualizar status de la orden a preparing
-        await fetch(`/api/orders/${currentOrderId}/status`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "preparing" }),
-        });
-        
-        orderId = currentOrderId;
-      } else {
-        // Crear nueva orden
-        console.log("🆕 Creando nueva orden");
-        const orderData = {
-          tableId: selectedTable?.id || null,
-          items: itemsData,
-          status: "preparing",
-          paymentMethod: null,
-          loyaltyCardId: null,
-          customerName: customerName || null,
-        };
-
-        const res = await fetch("/api/orders", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(orderData),
-        });
-
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || "Error creating order");
-        }
-
-        const createdOrder = await res.json();
-        console.log("✅ Nueva orden creada:", createdOrder.id);
-        orderId = createdOrder.id;
+      // Solo guardar como currentOrderId si es la primera orden
+      if (!currentOrderId) {
         setCurrentOrderId(orderId);
       }
       
@@ -1660,6 +1642,16 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
+      // Consolidar órdenes hermanas antes de pagar
+      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      if (siblingOrderIds.length > 0) {
+        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siblingOrderIds }),
+        });
+      }
+      
       // Calcular propina
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
@@ -1683,25 +1675,6 @@ export default function BarPage() {
         throw new Error(errData.error || "Error en pago");
       }
       
-      // Para llevar: marcar todas las órdenes hermanas como pagadas también
-      if (!selectedTable) {
-        const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-        for (const siblingId of siblingOrderIds) {
-          await fetch(`/api/orders/${siblingId}/pay`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              paymentMethod: "cash",
-              loyaltyCardId: null,
-              loyaltyStamps: 0,
-              userId: employeeId,
-              tip: 0,
-              subtotal: 0,
-            }),
-          });
-        }
-      }
-      
       toast.success("Pago en efectivo registrado");
       setPaymentCompleted(true);
     } catch (err: any) {
@@ -1715,6 +1688,16 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
+      // Consolidar órdenes hermanas antes de pagar
+      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      if (siblingOrderIds.length > 0) {
+        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siblingOrderIds }),
+        });
+      }
+      
       // Calcular propina
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
@@ -1736,25 +1719,6 @@ export default function BarPage() {
         const errData = await res.json().catch(() => ({}));
         console.error("❌ Error en pago:", errData);
         throw new Error(errData.error || "Error en pago");
-      }
-      
-      // Para llevar: marcar todas las órdenes hermanas como pagadas también
-      if (!selectedTable) {
-        const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-        for (const siblingId of siblingOrderIds) {
-          await fetch(`/api/orders/${siblingId}/pay`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              paymentMethod: "transfer",
-              loyaltyCardId: null,
-              loyaltyStamps: 0,
-              userId: employeeId,
-              tip: 0,
-              subtotal: 0,
-            }),
-          });
-        }
       }
       
       toast.success("Pago por transferencia registrado");
@@ -2804,6 +2768,17 @@ export default function BarPage() {
                         });
                       }
                       
+                      // Consolidar órdenes hermanas en la orden principal antes de pagar
+                      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+                      if (siblingOrderIds.length > 0) {
+                        console.log("🔀 Consolidando", siblingOrderIds.length, "órdenes hermanas");
+                        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ siblingOrderIds }),
+                        });
+                      }
+                      
                       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -2817,22 +2792,6 @@ export default function BarPage() {
                         }),
                       });
                       if (!res.ok) throw new Error();
-                      // Marcar órdenes hermanas como pagadas también
-                      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-                      for (const siblingId of siblingOrderIds) {
-                        await fetch(`/api/orders/${siblingId}/pay`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            paymentMethod: "split",
-                            loyaltyCardId: null,
-                            loyaltyStamps: 0,
-                            userId: employeeId,
-                            tip: 0,
-                            subtotal: 0,
-                          }),
-                        });
-                      }
                       // Guardar resumen de split finalizado (no borrar — se usa en historial)
                       await fetch(`/api/orders/${currentOrderId}`, {
                         method: "PATCH",
