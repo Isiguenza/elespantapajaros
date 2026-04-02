@@ -269,6 +269,9 @@ export default function OrderHistoryPage() {
                 </p>
               )}
               <div className="space-y-2">
+                {(!selectedOrder.items || selectedOrder.items.length === 0) && (
+                  <p className="text-sm text-muted-foreground italic">Sin detalle de productos (orden anterior a actualización)</p>
+                )}
                 {selectedOrder.items?.map((item) => {
                   const isVoided = (item as any).voided;
                   return (

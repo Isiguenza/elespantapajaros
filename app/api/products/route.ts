@@ -8,8 +8,24 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const activeOnly = searchParams.get("active") === "true";
 
+    const includeImages = searchParams.get("images") === "true";
+
     const result = await db.query.products.findMany({
       where: activeOnly ? eq(products.active, true) : undefined,
+      columns: {
+        id: true,
+        name: true,
+        description: true,
+        price: true,
+        categoryId: true,
+        groupId: true,
+        imageUrl: includeImages,
+        hasVariants: true,
+        variants: true,
+        active: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       with: { category: true },
       orderBy: [desc(products.createdAt)],
     });

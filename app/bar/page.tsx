@@ -20,7 +20,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank, House, Coffee, ShoppingBag, Users } from "@phosphor-icons/react";
+import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank, House, Coffee, ShoppingBag, Users, Printer } from "@phosphor-icons/react";
 import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 import { toast } from "sonner";
 import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption, Table, Order } from "@/lib/types";
@@ -1677,6 +1677,7 @@ export default function BarPage() {
       
       toast.success("Pago en efectivo registrado");
       setPaymentCompleted(true);
+      handlePrint();
     } catch (err: any) {
       toast.error(err?.message || "Error procesando pago");
     } finally {
@@ -1723,10 +1724,69 @@ export default function BarPage() {
       
       toast.success("Pago por transferencia registrado");
       setPaymentCompleted(true);
+      handlePrint();
     } catch (err: any) {
       toast.error(err?.message || "Error procesando pago");
     } finally {
       setProcessing(false);
+    }
+  }
+
+  function shortenName(name: string, max = 22): string {
+    let s = name
+      .replace(/Camarones/gi, "Cam.")
+      .replace(/Orden de (\d+)/gi, "Ord.$1")
+      .replace(/Grande/gi, "Gde")
+      .replace(/Mediano/gi, "Med")
+      .replace(/Chico/gi, "Chc")
+      .replace(/Empanada/gi, "Emp.")
+      .replace(/Quesadilla/gi, "Qsda.")
+      .replace(/Ensenada/gi, "Ens.")
+      .replace(/Tamarindo/gi, "Tam.")
+      .replace(/Asiaticos/gi, "Asia.")
+      .replace(/Pescaditos/gi, "Pesc.")
+      .replace(/Mineral/gi, "Min.")
+      .replace(/preparada/gi, "prep.")
+      .replace(/camarón/gi, "cam.")
+      .replace(/camaron/gi, "cam.")
+      .replace(/Paquete/gi, "Paq.")
+      .replace(/Pieza/gi, "Pza")
+      .replace(/ - /g, "-");
+    if (s.length > max) s = s.slice(0, max - 1) + ".";
+    return s;
+  }
+
+  async function handlePrint() {
+    try {
+      const sentItems = cart.filter(item => item.sentToKitchen);
+      if (sentItems.length === 0) return;
+
+      // Agrupar items iguales sumando cantidades
+      const grouped = new Map<string, { name: string; qty: number; price: number }>();
+      for (const item of sentItems) {
+        const key = `${item.productId}-${item.unitPrice}`;
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.qty += item.quantity;
+        } else {
+          grouped.set(key, {
+            name: shortenName(item.productName),
+            qty: item.quantity,
+            price: item.unitPrice,
+          });
+        }
+      }
+
+      const items = Array.from(grouped.values());
+      const subtotal = items.reduce((sum, i) => sum + (i.qty * i.price), 0);
+
+      await fetch("http://192.168.0.160:3001/print", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items, subtotal }),
+      });
+    } catch (err) {
+      console.error("Error imprimiendo ticket:", err);
     }
   }
 
@@ -2481,15 +2541,26 @@ export default function BarPage() {
             </Button>
           )}
           
-          {/* Botón Cobrar */}
-          <Button
-            onClick={handleCheckout}
-            disabled={cart.length === 0 || submitting}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-            size="lg"
-          >
-            {submitting ? "Procesando..." : "Cobrar"}
-          </Button>
+          {/* Botones Cobrar e Imprimir */}
+          <div className="flex gap-2">
+            <Button
+              onClick={handleCheckout}
+              disabled={cart.length === 0 || submitting}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+              size="lg"
+            >
+              {submitting ? "Procesando..." : "Cobrar"}
+            </Button>
+            <Button
+              onClick={handlePrint}
+              disabled={cart.filter(i => i.sentToKitchen).length === 0}
+              variant="outline"
+              className="bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700"
+              size="lg"
+            >
+              <Printer className="size-5" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -2799,6 +2870,7 @@ export default function BarPage() {
                         body: JSON.stringify({ splitBillData: splitSummary }),
                       });
                       toast.success("Pago dividido completado - Mesa liberada");
+                      handlePrint();
                       handleConfirmOrder();
                     } catch {
                       toast.error("Error procesando pago dividido");
