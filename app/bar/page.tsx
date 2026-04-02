@@ -2558,16 +2558,14 @@ export default function BarPage() {
                           <span className="font-semibold text-white">
                             {formatCurrency(item.unitPrice * item.quantity)}
                           </span>
-                          {!item.sentToKitchen && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeFromCart(index)}
-                              className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
-                            >
-                              <Trash className="size-3" />
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeFromCart(index)}
+                            className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
+                          >
+                            <Trash className="size-3" />
+                          </Button>
                         </div>
                       </div>
                       <div className="text-xs text-neutral-500 mt-0.5">
