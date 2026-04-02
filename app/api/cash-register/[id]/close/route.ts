@@ -82,22 +82,6 @@ export async function POST(
     const difference = finalCash - expectedCash;
     const absDifference = Math.abs(difference);
 
-    // Check tolerance
-    if (absDifference > CASH_TOLERANCE) {
-      if (!supervisorId || !supervisorReason) {
-        return NextResponse.json(
-          { 
-            error: "Diferencia mayor a tolerancia",
-            requiresSupervisor: true,
-            difference: difference.toFixed(2),
-            tolerance: CASH_TOLERANCE.toFixed(2),
-            message: `Diferencia de ${difference >= 0 ? '+' : ''}$${difference.toFixed(2)} excede tolerancia de ±$${CASH_TOLERANCE.toFixed(2)}. Se requiere autorización de supervisor.`
-          },
-          { status: 400 }
-        );
-      }
-    }
-
     const totalSales = cashSales + terminalSales + transferSales;
 
     // Close register

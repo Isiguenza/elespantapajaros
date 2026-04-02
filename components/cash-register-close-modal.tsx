@@ -92,20 +92,7 @@ export function CashRegisterCloseModal({
     setEmployeeId(empId);
     setEmployeeName(empName);
     setPinModalOpen(false);
-    
-    // Check if requires supervisor/confirmation
-    if (absDifference > tolerance) {
-      if (isAdmin) {
-        // Admin solo necesita confirmar
-        setShowConfirmDialog(true);
-      } else {
-        // Cajero necesita supervisor
-        setRequiresSupervisor(true);
-        setSupervisorPinModalOpen(true);
-      }
-    } else {
-      handleCloseRegister(empId, null, null);
-    }
+    handleCloseRegister(empId, null, null);
   }
 
   function handleConfirmWithDifference() {
@@ -155,11 +142,6 @@ export function CashRegisterCloseModal({
       const data = await res.json();
 
       if (!res.ok) {
-        if (data.requiresSupervisor) {
-          setRequiresSupervisor(true);
-          toast.error(data.message);
-          return;
-        }
         throw new Error(data.error);
       }
 
@@ -295,8 +277,7 @@ export function CashRegisterCloseModal({
                   </div>
                   {absDifference > tolerance && (
                     <p className="text-sm text-red-600 mt-2">
-                      ⚠️ La diferencia excede la tolerancia de ±{formatCurrency(tolerance)}. 
-                      Se requiere autorización de supervisor.
+                      ⚠️ La diferencia excede la tolerancia de ±{formatCurrency(tolerance)}.
                     </p>
                   )}
                 </div>
