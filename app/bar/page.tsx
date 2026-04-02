@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { jsPDF } from "jspdf";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -1770,7 +1771,7 @@ export default function BarPage() {
           existing.qty += item.quantity;
         } else {
           grouped.set(key, {
-            name: shortenName(item.productName),
+            name: item.productName,
             qty: item.quantity,
             price: item.unitPrice,
           });
@@ -1779,14 +1780,148 @@ export default function BarPage() {
 
       const items = Array.from(grouped.values());
       const subtotal = items.reduce((sum, i) => sum + (i.qty * i.price), 0);
+      const tipAmount = showCustomTip 
+        ? parseFloat(customTip) || 0 
+        : (cartTotal * tipPercentage / 100);
+      const total = subtotal + tipAmount;
 
-      await fetch("http://192.168.0.160:3001/print", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items, subtotal }),
+      // 58mm = ~164pt. Usamos un ancho de 48mm útil con márgenes
+      const pageW = 58;
+      const margin = 3;
+      const contentW = pageW - margin * 2;
+      // Estimar altura: header(logo+addr+date+mesa) + items + footer(subtotal+total+msg)
+      const estimatedH = 80 + items.length * 10 + 40;
+      
+      const doc = new jsPDF({
+        unit: "mm",
+        format: [pageW, estimatedH],
       });
+
+      let y = 2;
+
+      // Logo — grande, cropear laterales para llenar el ancho
+      try {
+        const logoImg = new Image();
+        logoImg.crossOrigin = "anonymous";
+        await new Promise<void>((resolve, reject) => {
+          logoImg.onload = () => resolve();
+          logoImg.onerror = () => reject();
+          logoImg.src = "/logo.png";
+        });
+        const natW = logoImg.naturalWidth;
+        const natH = logoImg.naturalHeight;
+        // Cropear 20% de cada lado para hacer zoom al centro
+        const cropPct = 0.20;
+        const cropX = natW * cropPct;
+        const cropW = natW * (1 - cropPct * 2);
+        const cropH = natH;
+        // Canvas para cropear
+        const canvas = document.createElement("canvas");
+        canvas.width = cropW;
+        canvas.height = cropH;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(logoImg, cropX, 0, cropW, cropH, 0, 0, cropW, cropH);
+        const croppedDataUrl = canvas.toDataURL("image/png");
+        
+        const logoW = pageW - margin * 2;
+        const logoH = (cropH / cropW) * logoW;
+        doc.addImage(croppedDataUrl, "PNG", margin, y, logoW, logoH);
+        y += logoH + 1;
+      } catch {
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("BRUMA", pageW / 2, y + 6, { align: "center" });
+        y += 9;
+      }
+
+      // Dirección
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "normal");
+      const addr1 = "Av. Panamericana Casa B14";
+      const addr2 = "Col. Pedregal de Carrasco, CDMX";
+      doc.text(addr1, pageW / 2, y, { align: "center" });
+      y += 2.5;
+      doc.text(addr2, pageW / 2, y, { align: "center" });
+      y += 3;
+
+      // Fecha
+      doc.setFontSize(6);
+      const now = new Date();
+      const dateStr = `${now.toLocaleDateString("es-MX")} ${now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`;
+      doc.text(dateStr, pageW / 2, y, { align: "center" });
+      y += 3;
+
+      // Mesa / Para llevar
+      const label = selectedTable ? `Mesa ${selectedTable.number}` : "Para Llevar";
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text(label, pageW / 2, y, { align: "center" });
+      y += 4;
+
+      // Línea separadora
+      doc.setLineWidth(0.3);
+      doc.setDrawColor(0);
+      doc.line(margin, y, pageW - margin, y);
+      y += 3;
+
+      // Items
+      doc.setFontSize(7);
+      for (const item of items) {
+        const lineTotal = item.qty * item.price;
+        const qtyName = `${item.qty}x ${item.name}`;
+        const priceStr = `$${lineTotal.toFixed(0)}`;
+
+        doc.setFont("helvetica", "normal");
+        // Nombre del producto (puede ser largo, hacer wrap)
+        const lines = doc.splitTextToSize(qtyName, contentW - 12);
+        for (let i = 0; i < lines.length; i++) {
+          doc.text(lines[i], margin, y);
+          if (i === 0) {
+            doc.text(priceStr, pageW - margin, y, { align: "right" });
+          }
+          y += 3;
+        }
+        y += 1;
+      }
+
+      // Espacio antes del resumen
+      y += 60;
+
+      // Línea separadora
+      doc.line(margin, y, pageW - margin, y);
+      y += 4;
+
+      // Subtotal
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text("Subtotal:", margin, y);
+      doc.text(`$${subtotal.toFixed(0)}`, pageW - margin, y, { align: "right" });
+      y += 3.5;
+
+      // Propina (si hay)
+      if (tipAmount > 0) {
+        doc.text("Propina:", margin, y);
+        doc.text(`$${tipAmount.toFixed(0)}`, pageW - margin, y, { align: "right" });
+        y += 3.5;
+      }
+
+      // Total
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("TOTAL:", margin, y);
+      doc.text(`$${total.toFixed(0)}`, pageW - margin, y, { align: "right" });
+      y += 5;
+
+      // Agradecimiento
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.text("Gracias por su preferencia", pageW / 2, y, { align: "center" });
+
+      // Descargar
+      doc.save(`ticket-${now.getTime()}.pdf`);
     } catch (err) {
-      console.error("Error imprimiendo ticket:", err);
+      console.error("Error generando ticket:", err);
+      toast.error("Error generando ticket");
     }
   }
 
