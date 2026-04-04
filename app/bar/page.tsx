@@ -1879,7 +1879,7 @@ export default function BarPage() {
       const margin = 3;
       const contentW = pageW - margin * 2;
       const totalItemLines = allItems.length + courseKeys.length * 2;
-      const estimatedH = 80 + totalItemLines * 12 + 40;
+      const estimatedH = 120 + totalItemLines * 18 + 80;
       
       const doc = new jsPDF({
         unit: "mm",
@@ -1899,8 +1899,8 @@ export default function BarPage() {
         });
         const natW = logoImg.naturalWidth;
         const natH = logoImg.naturalHeight;
-        // Cropear 20% de cada lado para hacer zoom al centro
-        const cropPct = 0.20;
+        // Cropear 5% de cada lado para hacer zoom al centro
+        const cropPct = 0.05;
         const cropX = natW * cropPct;
         const cropW = natW * (1 - cropPct * 2);
         const cropH = natH;
@@ -1912,9 +1912,10 @@ export default function BarPage() {
         ctx.drawImage(logoImg, cropX, 0, cropW, cropH, 0, 0, cropW, cropH);
         const croppedDataUrl = canvas.toDataURL("image/png");
         
-        const logoW = pageW - margin * 2;
+        const logoW = (pageW - margin * 2) / 2;
         const logoH = (cropH / cropW) * logoW;
-        doc.addImage(croppedDataUrl, "PNG", margin, y, logoW, logoH);
+        const logoX = (pageW - logoW) / 2; // Centrar el logo
+        doc.addImage(croppedDataUrl, "PNG", logoX, y, logoW, logoH);
         y += logoH + 3;
       } catch {
         doc.setFontSize(16);
@@ -1931,14 +1932,14 @@ export default function BarPage() {
       doc.text(addr1, pageW / 2, y, { align: "center" });
       y += 3;
       doc.text(addr2, pageW / 2, y, { align: "center" });
-      y += 4;
+      y += 7;
 
       // Fecha
       doc.setFontSize(6);
       const now = new Date();
       const dateStr = `${now.toLocaleDateString("es-MX")} ${now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`;
       doc.text(dateStr, pageW / 2, y, { align: "center" });
-      y += 4;
+      y += 7;
 
       // Mesa / Para llevar + # Orden en la misma línea
       const label = selectedTable ? `Mesa ${selectedTable.number}` : "Para Llevar";
@@ -1949,13 +1950,13 @@ export default function BarPage() {
       // Número de orden al lado derecho
       const orderNumText = `#${sentItems[0]?.orderId?.slice(0, 8) || 'N/A'}`;
       doc.text(orderNumText, pageW - margin, y, { align: "right" });
-      y += 5;
+      y += 8;
 
       // Línea separadora
       doc.setLineWidth(0.3);
       doc.setDrawColor(0);
       doc.line(margin, y, pageW - margin, y);
-      y += 3;
+      y += 5;
 
       // Items agrupados por curso, luego por asiento
       for (const courseNum of courseKeys) {
@@ -1989,7 +1990,8 @@ export default function BarPage() {
           doc.setFontSize(8);
           for (const item of seatItems) {
             const lineTotal = item.qty * item.price;
-            const qtyName = `${item.qty}x ${item.name}`;
+            const itemName = item.name.length > 22 ? item.name.substring(0, 22) + '...' : item.name;
+            const qtyName = `${item.qty}x ${itemName}`;
             const priceStr = `$${lineTotal.toFixed(0)}`;
 
             doc.setFont("helvetica", "normal");
@@ -2002,9 +2004,9 @@ export default function BarPage() {
               }
               y += 3.5;
             }
-            y += 3;
+            y += 4;
           }
-          y += 2;
+          y += 3;
         }
       }
 
