@@ -891,7 +891,19 @@ export default function BarPage() {
       return;
     }
 
-    // Crear item temporal y mostrar diálogo de comentarios
+    // Si la categoría tiene un flujo personalizado con pasos, iniciar el flujo
+    if (categoryFlow && !categoryFlow.useDefaultFlow && categoryFlow.steps.length > 0) {
+      setSelectedProduct(product);
+      setStepSelections({});
+      setSelectedFrosting(null);
+      setSelectedTopping(null);
+      setSelectedExtras([]);
+      setProductNotes("");
+      setCurrentStepIndex(0);
+      return;
+    }
+
+    // Sin flujo personalizado: crear item y mostrar diálogo de comentarios
     const newItem: CartItem = {
       productId: product.id,
       productName: product.name,
