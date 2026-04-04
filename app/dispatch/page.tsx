@@ -260,8 +260,9 @@ export default function DispatchMonitorPage() {
             const urgency = getOrderUrgency(order);
             const urgencyColor = getUrgencyColor(urgency);
             const isExpanded = expandedOrders.has(order.id);
-            const visibleItems = isExpanded ? order.items : order.items?.slice(0, 3);
-            const hasMoreItems = (order.items?.length || 0) > 3;
+            const activeItems = order.items?.filter((item: any) => !item.voided) || [];
+            const visibleItems = isExpanded ? activeItems : activeItems.slice(0, 3);
+            const hasMoreItems = activeItems.length > 3;
 
             return (
               <div
@@ -352,7 +353,7 @@ export default function DispatchMonitorPage() {
                         className="text-blue-400 text-sm hover:text-blue-300 flex items-center gap-1 mt-2"
                       >
                         <span>↕</span>
-                        <span>{isExpanded ? `Ocultar` : `${(order.items?.length || 0) - 3} producto${(order.items?.length || 0) - 3 > 1 ? 's' : ''} más`}</span>
+                        <span>{isExpanded ? `Ocultar` : `${activeItems.length - 3} producto${activeItems.length - 3 > 1 ? 's' : ''} más`}</span>
                       </button>
                     )}
                   </div>

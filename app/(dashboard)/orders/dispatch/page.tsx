@@ -108,7 +108,7 @@ export default function DispatchPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-1.5">
-            {order.items?.map((item) => (
+            {order.items?.filter((item: any) => !item.voided).map((item) => (
               <div key={item.id} className="flex items-start gap-2 text-sm">
                 <Badge variant="secondary" className="shrink-0 text-xs">
                   {item.quantity}x

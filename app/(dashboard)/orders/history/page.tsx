@@ -1,63 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { MagnifyingGlass, Eye } from "@phosphor-icons/react";
-import { format } from "date-fns";
+import { MagnifyingGlass, Eye, Receipt, ShoppingBag } from "@phosphor-icons/react";
+import { format, isToday, isYesterday } from "date-fns";
 import { es } from "date-fns/locale";
 import type { Order } from "@/lib/types";
-
-const statusLabels: Record<string, string> = {
-  pending: "Pendiente",
-  preparing: "Preparando",
-  ready: "Lista",
-  delivered: "Entregada",
-  cancelled: "Cancelada",
-};
-
-const statusVariants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  pending: "outline",
-  preparing: "secondary",
-  ready: "default",
-  delivered: "default",
-  cancelled: "destructive",
-};
-
-const paymentLabels: Record<string, string> = {
-  pending: "Pendiente",
-  paid: "Pagado",
-  failed: "Fallido",
-  refunded: "Reembolsado",
-};
 
 const methodLabels: Record<string, string> = {
   cash: "Efectivo",
@@ -76,20 +32,21 @@ export default function OrderHistoryPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter]);
+  }, []);
 
   async function fetchOrders() {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (statusFilter !== "all") params.set("status", statusFilter);
-      const res = await fetch(`/api/orders?${params.toString()}&limit=100`);
-      if (res.ok) setOrders(await res.json());
+      const res = await fetch(`/api/orders?status=delivered&limit=200`);
+      if (res.ok) {
+        const data: Order[] = await res.json();
+        // Solo órdenes cobradas (paymentStatus = paid)
+        setOrders(data.filter(o => o.paymentStatus === "paid"));
+      }
     } catch (error) {
       console.error("Error fetching orders:", error);
     } finally {
@@ -103,146 +60,157 @@ export default function OrderHistoryPage() {
       currency: "MXN",
     }).format(typeof amount === "string" ? parseFloat(amount) : amount);
 
-  const filteredOrders = orders.filter((o) => {
-    if (!search) return true;
+  const filteredOrders = useMemo(() => {
+    if (!search) return orders;
     const q = search.toLowerCase();
-    return (
-      o.orderNumber.toString().includes(q) ||
-      o.customerName?.toLowerCase().includes(q)
+    return orders.filter(
+      (o) =>
+        o.orderNumber.toString().includes(q) ||
+        o.customerName?.toLowerCase().includes(q) ||
+        (o.table as any)?.number?.toString().includes(q)
     );
-  });
+  }, [orders, search]);
+
+  // Agrupar por día
+  const groupedByDay = useMemo(() => {
+    const groups: { label: string; dateKey: string; orders: Order[]; dayTotal: number }[] = [];
+    const map = new Map<string, Order[]>();
+
+    for (const order of filteredOrders) {
+      const d = new Date(order.createdAt);
+      const key = format(d, "yyyy-MM-dd");
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(order);
+    }
+
+    // Ordenar por fecha desc
+    const sortedKeys = Array.from(map.keys()).sort((a, b) => b.localeCompare(a));
+
+    for (const key of sortedKeys) {
+      const dayOrders = map.get(key)!;
+      const d = new Date(key + "T12:00:00");
+      let label: string;
+      if (isToday(d)) {
+        label = "Hoy";
+      } else if (isYesterday(d)) {
+        label = "Ayer";
+      } else {
+        label = format(d, "EEEE d 'de' MMMM", { locale: es });
+        label = label.charAt(0).toUpperCase() + label.slice(1);
+      }
+      const dayTotal = dayOrders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
+      groups.push({ label, dateKey: key, orders: dayOrders, dayTotal });
+    }
+
+    return groups;
+  }, [filteredOrders]);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">Historial de Órdenes</h1>
-
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <MagnifyingGlass className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por # o cliente..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="pending">Pendiente</SelectItem>
-            <SelectItem value="preparing">Preparando</SelectItem>
-            <SelectItem value="ready">Lista</SelectItem>
-            <SelectItem value="delivered">Entregada</SelectItem>
-            <SelectItem value="cancelled">Cancelada</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">Historial de Ventas</h1>
+        <Badge variant="outline" className="text-sm">
+          {orders.length} órdenes
+        </Badge>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">#</TableHead>
-                <TableHead>Mesa</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead className="text-right">Subtotal</TableHead>
-                <TableHead className="text-right">Propina</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead>Método</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead className="w-12" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={10} className="h-32 text-center">
-                    Cargando...
-                  </TableCell>
-                </TableRow>
-              ) : filteredOrders.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={10} className="h-32 text-center text-muted-foreground">
-                    No hay órdenes
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredOrders.map((order) => {
-                  const subtotal = parseFloat((order as any).subtotal || "0");
-                  const tip = parseFloat((order as any).tip || "0");
+      <div className="relative">
+        <MagnifyingGlass className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Buscar por #, cliente o mesa..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center h-64 text-muted-foreground">
+          Cargando...
+        </div>
+      ) : groupedByDay.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+          <Receipt className="size-12 mb-3 opacity-50" />
+          <p>No hay ventas registradas</p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {groupedByDay.map((group) => (
+            <div key={group.dateKey}>
+              {/* Day header */}
+              <div className="flex items-center justify-between mb-3 sticky top-0 bg-background z-10 py-2">
+                <h2 className="text-lg font-semibold">{group.label}</h2>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    {group.orders.length} orden{group.orders.length !== 1 ? "es" : ""}
+                  </span>
+                  <Badge variant="secondary" className="font-semibold">
+                    {formatCurrency(group.dayTotal)}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Orders list */}
+              <div className="space-y-2">
+                {group.orders.map((order) => {
                   const total = parseFloat(order.total || "0");
+                  const tip = parseFloat((order as any).tip || "0");
+                  const tableNum = (order as any).table?.number;
+
                   return (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-bold">
-                        {order.orderNumber}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {(order as any).tableId ? `Mesa` : "Para llevar"}
-                      </TableCell>
-                      <TableCell>{order.customerName || "—"}</TableCell>
-                      <TableCell className="text-right text-sm">
-                        {formatCurrency(subtotal || total)}
-                      </TableCell>
-                      <TableCell className="text-right text-sm">
-                        {tip > 0 ? (
-                          <span className="text-blue-400">
-                            {formatCurrency(tip)}
-                            <span className="text-blue-400/60 ml-1 text-xs">
-                              {(() => {
-                                const s = subtotal || total;
-                                if (s > 0) {
-                                  const pct = Math.round((tip / s) * 100);
-                                  if ([10, 15, 20].includes(pct)) return `(${pct}%)`;
-                                  return "(Otro)";
-                                }
-                                return "";
-                              })()}
-                            </span>
+                    <button
+                      key={order.id}
+                      onClick={() => setSelectedOrder(order)}
+                      className="w-full text-left rounded-lg border bg-card p-4 hover:bg-accent/50 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary font-bold text-sm">
+                            #{order.orderNumber}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">
+                                {tableNum ? `Mesa ${tableNum}` : "Para llevar"}
+                              </span>
+                              {order.customerName && (
+                                <span className="text-sm text-muted-foreground">
+                                  — {order.customerName}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-xs text-muted-foreground">
+                                {format(new Date(order.createdAt), "HH:mm", { locale: es })}
+                              </span>
+                              {order.paymentMethod && (
+                                <Badge variant="outline" className="text-xs py-0 h-5">
+                                  {methodLabels[order.paymentMethod] || order.paymentMethod}
+                                </Badge>
+                              )}
+                              {tip > 0 && (
+                                <span className="text-xs text-blue-500">
+                                  +{formatCurrency(tip)} propina
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg font-bold">
+                            {formatCurrency(total)}
                           </span>
-                        ) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(total)}
-                      </TableCell>
-                      <TableCell>
-                        {order.paymentMethod ? (
-                          <Badge variant="outline" className="text-xs">
-                            {methodLabels[order.paymentMethod] || order.paymentMethod}
-                          </Badge>
-                        ) : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariants[order.status]}>
-                          {statusLabels[order.status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {format(new Date(order.createdAt), "dd MMM HH:mm", {
-                          locale: es,
-                        })}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedOrder(order)}
-                        >
-                          <Eye className="size-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                          <Eye className="size-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    </button>
                   );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Order Detail Dialog */}
       <Dialog
@@ -251,26 +219,43 @@ export default function OrderHistoryPage() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Orden #{selectedOrder?.orderNumber}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Orden #{selectedOrder?.orderNumber}
+              {(() => {
+                const tableNum = (selectedOrder as any)?.table?.number;
+                return tableNum ? (
+                  <Badge variant="secondary">Mesa {tableNum}</Badge>
+                ) : (
+                  <Badge variant="outline">
+                    <ShoppingBag className="size-3 mr-1" />
+                    Para llevar
+                  </Badge>
+                );
+              })()}
+            </DialogTitle>
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-4">
-              <div className="flex gap-2">
-                <Badge variant={statusVariants[selectedOrder.status]}>
-                  {statusLabels[selectedOrder.status]}
-                </Badge>
-                <Badge variant="outline">
-                  {paymentLabels[selectedOrder.paymentStatus]}
-                </Badge>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>
+                  {format(new Date(selectedOrder.createdAt), "EEEE d 'de' MMMM, HH:mm", { locale: es })}
+                </span>
+                {selectedOrder.paymentMethod && (
+                  <Badge variant="outline" className="text-xs">
+                    {methodLabels[selectedOrder.paymentMethod] || selectedOrder.paymentMethod}
+                  </Badge>
+                )}
               </div>
+
               {selectedOrder.customerName && (
                 <p className="text-sm">
                   <strong>Cliente:</strong> {selectedOrder.customerName}
                 </p>
               )}
+
               <div className="space-y-2">
                 {(!selectedOrder.items || selectedOrder.items.length === 0) && (
-                  <p className="text-sm text-muted-foreground italic">Sin detalle de productos (orden anterior a actualización)</p>
+                  <p className="text-sm text-muted-foreground italic">Sin detalle de productos</p>
                 )}
                 {selectedOrder.items?.map((item) => {
                   const isVoided = (item as any).voided;
@@ -298,7 +283,6 @@ export default function OrderHistoryPage() {
                   const tip = parseFloat((selectedOrder as any).tip || "0");
                   const total = parseFloat(selectedOrder.total || "0");
                   
-                  // Intentar parsear splitBillData
                   let splitData: any = null;
                   try {
                     const raw = (selectedOrder as any).splitBillData;
@@ -310,7 +294,6 @@ export default function OrderHistoryPage() {
                   
                   return (
                     <>
-                      {/* Desglose por persona si fue cuenta dividida */}
                       {splitData && splitData.persons && (
                         <div className="border-t pt-3 space-y-3">
                           <p className="text-sm font-semibold text-muted-foreground">
@@ -349,7 +332,6 @@ export default function OrderHistoryPage() {
                         </div>
                       )}
                       
-                      {/* Totales generales */}
                       {subtotal > 0 && tip > 0 && (
                         <>
                           <div className="flex justify-between border-t pt-2 text-sm">
@@ -378,11 +360,6 @@ export default function OrderHistoryPage() {
                   );
                 })()}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {format(new Date(selectedOrder.createdAt), "PPpp", {
-                  locale: es,
-                })}
-              </p>
             </div>
           )}
         </DialogContent>

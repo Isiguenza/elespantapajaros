@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { orders, orderItems } from "@/lib/db/schema";
+import { orders, orderItems, cashRegisterTransactions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function GET(
@@ -54,10 +54,13 @@ export async function DELETE(
   try {
     const { id } = await params;
     
-    // Primero eliminar los items de la orden
+    // Eliminar transacciones de caja que referencian esta orden
+    await db.delete(cashRegisterTransactions).where(eq(cashRegisterTransactions.orderId, id));
+    
+    // Eliminar los items de la orden
     await db.delete(orderItems).where(eq(orderItems.orderId, id));
     
-    // Luego eliminar la orden
+    // Eliminar la orden
     await db.delete(orders).where(eq(orders.id, id));
 
     return NextResponse.json({ success: true });

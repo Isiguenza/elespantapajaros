@@ -490,25 +490,27 @@ export default function BarPage() {
           
           for (const order of orders) {
             console.log(`🔄 Procesando orden ${order.id} con status ${order.status}`);
-            const items = order.items.map((item: any) => ({
-              productId: item.productId,
-              productName: item.productName,
-              unitPrice: parseFloat(item.unitPrice),
-              quantity: item.quantity,
-              notes: item.notes || "",
-              frostingId: item.frostingId,
-              frostingName: item.frostingName,
-              dryToppingId: item.dryToppingId,
-              dryToppingName: item.dryToppingName,
-              extraId: item.extraId,
-              extraName: item.extraName,
-              customModifiers: item.customModifiers,
-              sentToKitchen: order.status === "preparing" || order.status === "ready" || order.status === "delivered", // Marcar como enviados
-              orderStatus: order.status, // Guardar status para mostrar badge correcto
-              orderId: order.id, // Guardar ID de la orden
-              itemId: item.id, // Guardar ID del item en BD
-              deliveredToTable: item.deliveredToTable || false, // Estado de entrega física
-            }));
+            const items = order.items
+              .filter((item: any) => !item.voided) // Excluir items eliminados
+              .map((item: any) => ({
+                productId: item.productId,
+                productName: item.productName,
+                unitPrice: parseFloat(item.unitPrice),
+                quantity: item.quantity,
+                notes: item.notes || "",
+                frostingId: item.frostingId,
+                frostingName: item.frostingName,
+                dryToppingId: item.dryToppingId,
+                dryToppingName: item.dryToppingName,
+                extraId: item.extraId,
+                extraName: item.extraName,
+                customModifiers: item.customModifiers,
+                sentToKitchen: order.status === "preparing" || order.status === "ready" || order.status === "delivered", // Marcar como enviados
+                orderStatus: order.status, // Guardar status para mostrar badge correcto
+                orderId: order.id, // Guardar ID de la orden
+                itemId: item.id, // Guardar ID del item en BD
+                deliveredToTable: item.deliveredToTable || false, // Estado de entrega física
+              }));
             allCartItems.push(...items);
           }
           
@@ -588,25 +590,27 @@ export default function BarPage() {
       );
       
       for (const dOrder of customerDeliveryOrders) {
-        const items = dOrder.items?.map((item: any) => ({
-          productId: item.productId,
-          productName: item.productName,
-          unitPrice: parseFloat(item.unitPrice),
-          quantity: item.quantity,
-          notes: item.notes || "",
-          frostingId: item.frostingId,
-          frostingName: item.frostingName,
-          dryToppingId: item.dryToppingId,
-          dryToppingName: item.dryToppingName,
-          extraId: item.extraId,
-          extraName: item.extraName,
-          customModifiers: item.customModifiers,
-          sentToKitchen: dOrder.status === "preparing" || dOrder.status === "ready" || dOrder.status === "delivered",
-          orderStatus: dOrder.status,
-          orderId: dOrder.id,
-          itemId: item.id,
-          deliveredToTable: item.deliveredToTable || false,
-        })) || [];
+        const items = (dOrder.items || [])
+          .filter((item: any) => !item.voided) // Excluir items eliminados
+          .map((item: any) => ({
+            productId: item.productId,
+            productName: item.productName,
+            unitPrice: parseFloat(item.unitPrice),
+            quantity: item.quantity,
+            notes: item.notes || "",
+            frostingId: item.frostingId,
+            frostingName: item.frostingName,
+            dryToppingId: item.dryToppingId,
+            dryToppingName: item.dryToppingName,
+            extraId: item.extraId,
+            extraName: item.extraName,
+            customModifiers: item.customModifiers,
+            sentToKitchen: dOrder.status === "preparing" || dOrder.status === "ready" || dOrder.status === "delivered",
+            orderStatus: dOrder.status,
+            orderId: dOrder.id,
+            itemId: item.id,
+            deliveredToTable: item.deliveredToTable || false,
+          }));
         allCartItems.push(...items);
       }
       
@@ -2068,6 +2072,21 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
+      // Consolidar órdenes hermanas antes de pagar
+      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      if (siblingOrderIds.length > 0) {
+        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siblingOrderIds }),
+        });
+      }
+      
+      // Calcular propina
+      const tipAmount = showCustomTip 
+        ? parseFloat(customTip) || 0 
+        : (cartTotal * tipPercentage / 100);
+      
       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2076,13 +2095,20 @@ export default function BarPage() {
           loyaltyCardId: loyaltyCard?.id || null,
           loyaltyStamps: 1,
           userId: employeeId,
+          tip: tipAmount,
+          subtotal: cartTotal,
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Error en pago");
+      }
+      
       toast.success("Pago con terminal registrado");
       setPaymentCompleted(true);
-    } catch {
-      toast.error("Error procesando pago");
+      handlePrint();
+    } catch (err: any) {
+      toast.error(err?.message || "Error procesando pago");
     } finally {
       setProcessing(false);
     }

@@ -41,93 +41,46 @@ export async function POST(
     const orderSubtotal = frontendSubtotal || parseFloat(order.total);
     const newTotal = orderSubtotal + tipAmount;
 
-    if (paymentMethod === "terminal_mercadopago") {
-      // Validate minimum amount for Mercado Pago (500 cents = $5.00 MXN)
-      const totalAmount = parseFloat(order.total);
-      if (totalAmount < 5) {
-        return NextResponse.json(
-          { 
-            error: "El monto mínimo para pago con terminal es $5.00 MXN",
-            hint: "Para montos menores usa efectivo"
-          }, 
-          { status: 400 }
-        );
-      }
+    // Mark as paid and delivered for all payment methods (cash, transfer, terminal)
+    console.log(`💰 Marcando orden ${id} como paid + delivered (${paymentMethod}) con propina: $${tipAmount}`);
+    await db
+      .update(orders)
+      .set({
+        paymentMethod: paymentMethod,
+        paymentStatus: "paid",
+        status: "delivered",
+        subtotal: orderSubtotal.toString(),
+        tip: tipAmount.toString(),
+        total: newTotal.toString(),
+        loyaltyCardId: loyaltyCardId || null,
+        userId: userId || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, id));
 
-      // Create payment intent on Mercado Pago terminal
-      try {
-        const mpResult = await createMercadoPagoPaymentIntent(order);
-        
-        // Update order with payment intent ID, but don't mark as paid yet
-        await db
-          .update(orders)
-          .set({
-            paymentMethod: "terminal_mercadopago",
-            mercadopagoPaymentIntentId: mpResult.id,
-            loyaltyCardId: loyaltyCardId || null,
-            userId: userId || null,
-            updatedAt: new Date(),
-          })
-          .where(eq(orders.id, id));
-
-        return NextResponse.json({
-          status: "waiting_for_terminal",
-          paymentIntentId: mpResult.id,
-        });
-      } catch (mpError) {
-        console.error("Mercado Pago error:", mpError);
-        const errorMessage = mpError instanceof Error ? mpError.message : "Error desconocido";
-        return NextResponse.json(
-          { 
-            error: "Error al procesar pago con Mercado Pago", 
-            details: errorMessage,
-            hint: "Verifica que el Access Token esté configurado y que la terminal esté registrada"
-          }, 
-          { status: 500 }
-        );
-      }
-    } else {
-      // Cash or Transfer payment - mark as paid and delivered
-      console.log(`💰 Marcando orden ${id} como paid + delivered con propina: $${tipAmount}`);
+    // Si la orden tiene mesa, marcar TODAS las órdenes activas de esa mesa como delivered+paid y liberar mesa
+    if (order.tableId) {
+      console.log(`🏓 Liberando mesa ${order.tableId} - marcando todas las órdenes activas como delivered+paid`);
       await db
         .update(orders)
         .set({
-          paymentMethod: paymentMethod, // "cash" or "transfer"
+          status: "delivered",
           paymentStatus: "paid",
-          status: "delivered", // Mark as delivered so it doesn't reappear when reopening the table
-          subtotal: orderSubtotal.toString(),
-          tip: tipAmount.toString(),
-          total: newTotal.toString(), // subtotal + tip
-          loyaltyCardId: loyaltyCardId || null,
-          userId: userId || null,
+          paymentMethod: paymentMethod,
           updatedAt: new Date(),
         })
-        .where(eq(orders.id, id));
+        .where(
+          and(
+            eq(orders.tableId, order.tableId),
+            inArray(orders.status, ["pending", "preparing", "ready"])
+          )
+        );
 
-      // Si la orden tiene mesa, marcar TODAS las órdenes activas de esa mesa como delivered+paid y liberar mesa
-      if (order.tableId) {
-        console.log(`🏓 Liberando mesa ${order.tableId} - marcando todas las órdenes activas como delivered+paid`);
-        await db
-          .update(orders)
-          .set({
-            status: "delivered",
-            paymentStatus: "paid",
-            paymentMethod: paymentMethod,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(orders.tableId, order.tableId),
-              inArray(orders.status, ["pending", "preparing", "ready"])
-            )
-          );
-
-        await db
-          .update(tables)
-          .set({ status: "available", guestCount: 1 })
-          .where(eq(tables.id, order.tableId));
-        console.log(`✅ Mesa ${order.tableId} liberada`);
-      }
+      await db
+        .update(tables)
+        .set({ status: "available", guestCount: 1 })
+        .where(eq(tables.id, order.tableId));
+      console.log(`✅ Mesa ${order.tableId} liberada`);
     }
 
     // Record cash register transaction
