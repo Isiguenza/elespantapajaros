@@ -1915,37 +1915,41 @@ export default function BarPage() {
         const logoW = pageW - margin * 2;
         const logoH = (cropH / cropW) * logoW;
         doc.addImage(croppedDataUrl, "PNG", margin, y, logoW, logoH);
-        y += logoH + 1;
+        y += logoH + 3;
       } catch {
         doc.setFontSize(16);
         doc.setFont("helvetica", "bold");
         doc.text("BRUMA", pageW / 2, y + 6, { align: "center" });
-        y += 9;
+        y += 11;
       }
 
       // Dirección
-      doc.setFontSize(5);
+      doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       const addr1 = "Av. Panamericana Casa B14";
       const addr2 = "Col. Pedregal de Carrasco, CDMX";
       doc.text(addr1, pageW / 2, y, { align: "center" });
-      y += 2.5;
-      doc.text(addr2, pageW / 2, y, { align: "center" });
       y += 3;
+      doc.text(addr2, pageW / 2, y, { align: "center" });
+      y += 4;
 
       // Fecha
       doc.setFontSize(6);
       const now = new Date();
       const dateStr = `${now.toLocaleDateString("es-MX")} ${now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`;
       doc.text(dateStr, pageW / 2, y, { align: "center" });
-      y += 3;
+      y += 4;
 
-      // Mesa / Para llevar
+      // Mesa / Para llevar + # Orden en la misma línea
       const label = selectedTable ? `Mesa ${selectedTable.number}` : "Para Llevar";
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
-      doc.text(label, pageW / 2, y, { align: "center" });
-      y += 4;
+      doc.text(label, margin, y);
+      
+      // Número de orden al lado derecho
+      const orderNumText = `#${sentItems[0]?.orderId?.slice(0, 8) || 'N/A'}`;
+      doc.text(orderNumText, pageW - margin, y, { align: "right" });
+      y += 5;
 
       // Línea separadora
       doc.setLineWidth(0.3);
@@ -1998,9 +2002,9 @@ export default function BarPage() {
               }
               y += 3.5;
             }
-            y += 1;
+            y += 3;
           }
-          y += 1;
+          y += 2;
         }
       }
 
