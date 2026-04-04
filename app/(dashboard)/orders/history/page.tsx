@@ -10,7 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { MagnifyingGlass, Eye, Receipt, ShoppingBag } from "@phosphor-icons/react";
+import { MagnifyingGlass, Eye, Receipt, ShoppingBag, Trash } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import { format, isToday, isYesterday } from "date-fns";
 import { es } from "date-fns/locale";
 import type { Order } from "@/lib/types";
@@ -33,6 +34,7 @@ export default function OrderHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchOrders();
@@ -51,6 +53,22 @@ export default function OrderHistoryPage() {
       console.error("Error fetching orders:", error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDeleteOrder(orderId: string, orderNumber: number) {
+    if (!confirm(`¿Eliminar orden #${orderNumber}? Se revertirá de la caja registradora.`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setOrders(orders.filter(o => o.id !== orderId));
+      setSelectedOrder(null);
+      toast.success(`Orden #${orderNumber} eliminada y revertida de caja`);
+    } catch {
+      toast.error("Error eliminando orden");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -217,7 +235,7 @@ export default function OrderHistoryPage() {
         open={!!selectedOrder}
         onOpenChange={() => setSelectedOrder(null)}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Orden #{selectedOrder?.orderNumber}
@@ -235,7 +253,7 @@ export default function OrderHistoryPage() {
             </DialogTitle>
           </DialogHeader>
           {selectedOrder && (
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto flex-1 pr-1">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span>
                   {format(new Date(selectedOrder.createdAt), "EEEE d 'de' MMMM, HH:mm", { locale: es })}
@@ -359,6 +377,19 @@ export default function OrderHistoryPage() {
                     </>
                   );
                 })()}
+              </div>
+
+              <div className="pt-3 border-t">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="w-full"
+                  disabled={deleting}
+                  onClick={() => handleDeleteOrder(selectedOrder.id, selectedOrder.orderNumber)}
+                >
+                  <Trash className="size-4 mr-2" />
+                  {deleting ? "Eliminando..." : "Eliminar orden y revertir de caja"}
+                </Button>
               </div>
             </div>
           )}
