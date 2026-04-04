@@ -209,6 +209,37 @@ export default function BarPage() {
     }
   }, [showTableSelection]);
 
+  // Detectar cuando la app vuelve de segundo plano (ej: después de compartir PDF)
+  useEffect(() => {
+    let wasHidden = false;
+    
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        wasHidden = true;
+      } else if (wasHidden) {
+        // La app volvió a estar visible después de estar oculta
+        wasHidden = false;
+        
+        // Si hay una mesa/orden activa, sugerir recargar
+        if (selectedTable || customerName) {
+          toast.info("Si la app no responde, recarga la página", {
+            duration: 5000,
+            action: {
+              label: "Recargar",
+              onClick: () => window.location.reload(),
+            },
+          });
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [selectedTable, customerName]);
+
   // Polling para actualizar estado de items del carrito automáticamente
   useEffect(() => {
     if (!selectedTable && !customerName) return; // No hay mesa/orden activa
