@@ -21,7 +21,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash, FlowArrow } from "@phosphor-icons/react";
+import { Plus, Pencil, Trash, FlowArrow, BeerStein } from "@phosphor-icons/react";
+import { Switch } from "@/components/ui/switch";
 import { useRouter } from "next/navigation";
 import type { Category } from "@/lib/types";
 
@@ -50,6 +51,7 @@ export default function CategoriesPage() {
     description: "",
     color: "#6B7280",
     sortOrder: 0,
+    isBeverage: false,
   });
 
   useEffect(() => {
@@ -115,6 +117,7 @@ export default function CategoriesPage() {
       description: category.description || "",
       color: category.color || "#6B7280",
       sortOrder: category.sortOrder,
+      isBeverage: category.isBeverage || false,
     });
     setDialogOpen(true);
   }
@@ -126,6 +129,7 @@ export default function CategoriesPage() {
       description: "",
       color: "#6B7280",
       sortOrder: 0,
+      isBeverage: false,
     });
   }
 
@@ -217,6 +221,20 @@ export default function CategoriesPage() {
                 />
               </div>
 
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div className="flex items-center gap-2">
+                  <BeerStein className="size-4 text-cyan-500" weight="fill" />
+                  <Label htmlFor="isBeverage" className="cursor-pointer">Es bebida</Label>
+                </div>
+                <Switch
+                  id="isBeverage"
+                  checked={formData.isBeverage}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, isBeverage: checked })
+                  }
+                />
+              </div>
+
               <div className="flex gap-2">
                 <Button type="submit" className="flex-1">
                   {editingCategory ? "Actualizar" : "Crear"}
@@ -240,6 +258,7 @@ export default function CategoriesPage() {
             <TableRow>
               <TableHead>Color</TableHead>
               <TableHead>Nombre</TableHead>
+              <TableHead>Bebida</TableHead>
               <TableHead>Descripción</TableHead>
               <TableHead>Orden</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
@@ -248,7 +267,7 @@ export default function CategoriesPage() {
           <TableBody>
             {categories.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
                   No hay categorías creadas
                 </TableCell>
               </TableRow>
@@ -262,6 +281,9 @@ export default function CategoriesPage() {
                     />
                   </TableCell>
                   <TableCell className="font-medium">{category.name}</TableCell>
+                  <TableCell>
+                    {category.isBeverage && <BeerStein className="size-4 text-cyan-500" weight="fill" />}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {category.description || "-"}
                   </TableCell>

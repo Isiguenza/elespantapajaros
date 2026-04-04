@@ -40,7 +40,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, description, color, sortOrder, active } = body;
+    const { name, description, color, sortOrder, active, isBeverage } = body;
 
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
@@ -48,6 +48,7 @@ export async function PUT(
     if (color !== undefined) updateData.color = color;
     if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
     if (active !== undefined) updateData.active = active;
+    if (isBeverage !== undefined) updateData.isBeverage = isBeverage;
 
     const [updated] = await db
       .update(categories)

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { playNotificationSound } from "@/lib/utils/sound";
 import type { Order } from "@/lib/types";
-import { SpeakerHigh, GridFour, Check, User, ForkKnife } from "@phosphor-icons/react";
+import { SpeakerHigh, GridFour, Check, User, ForkKnife, BeerStein, Timer } from "@phosphor-icons/react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 
@@ -286,96 +286,185 @@ export default function DispatchMonitorPage() {
                     {order.customerName && <span> • {order.customerName}</span>}
                   </div>
 
-                  {/* Items agrupados por asiento */}
+                  {/* Items: bebidas arriba, luego por tiempo, luego por asiento */}
                   <div className="space-y-3">
                     {(() => {
-                      // Agrupar por asiento
-                      const seatMap = new Map<string, typeof activeItems>();
-                      for (const item of visibleItems || []) {
-                        const seat = (item as any).seat || "C";
-                        if (!seatMap.has(seat)) seatMap.set(seat, []);
-                        seatMap.get(seat)!.push(item);
-                      }
-                      const seatKeys = Array.from(seatMap.keys()).sort((a, b) => {
-                        if (a === "C") return 1;
-                        if (b === "C") return -1;
-                        return a.localeCompare(b, undefined, { numeric: true });
-                      });
-                      const hasMultipleSeats = seatKeys.length > 1 || (seatKeys.length === 1 && seatKeys[0] !== "C");
+                      const items = visibleItems || [];
+                      // Separar bebidas y comida
+                      const beverages = items.filter((item: any) => item.product?.category?.isBeverage);
+                      const food = items.filter((item: any) => !item.product?.category?.isBeverage);
                       
-                      return seatKeys.map(seatKey => (
-                        <div key={seatKey} className={hasMultipleSeats ? `rounded-lg border ${seatKey === "C" ? "border-amber-800/50 bg-amber-950/20" : "border-blue-800/50 bg-blue-950/20"} p-3` : ""}>
-                          {hasMultipleSeats && (
-                            <div className={`flex items-center gap-1.5 text-sm font-bold mb-2 pb-2 border-b ${
-                              seatKey === "C" ? "text-amber-400 border-amber-800/40" : "text-blue-400 border-blue-800/40"
-                            }`}>
-                              {seatKey === "C" 
-                                ? <><ForkKnife className="size-4" weight="fill" /> Centro</>
-                                : <><User className="size-4" weight="fill" /> {seatKey}</>
-                              }
-                            </div>
-                          )}
-                          <div className="space-y-2">
-                          {seatMap.get(seatKey)!.map((item, idx) => {
-                            const customMods = parseCustomModifiers(item.customModifiers || null);
-                            return (
-                              <div key={idx} className="text-white">
-                                <div className="flex items-start gap-3">
-                                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
-                                    {item.quantity}
-                                  </div>
-                                  <div className="flex-1">
-                                    <div className="font-semibold text-base">{item.productName}</div>
-                                    {item.frostingName && (
-                                      <div className="text-blue-400 text-sm flex items-start gap-1 mt-1">
-                                        <span className="opacity-50">↳</span>
-                                        <span>{item.frostingName}</span>
-                                      </div>
-                                    )}
-                                    {item.dryToppingName && (
-                                      <div className="text-purple-400 text-sm flex items-start gap-1 mt-1">
-                                        <span className="opacity-50">↳</span>
-                                        <span>{item.dryToppingName}</span>
-                                      </div>
-                                    )}
-                                    {item.extraName && (
-                                      <div className="text-green-400 text-sm flex items-start gap-1 mt-1">
-                                        <span className="opacity-50">↳</span>
-                                        <span>{item.extraName}</span>
-                                      </div>
-                                    )}
-                                    {customMods && Object.entries(customMods).map(([key, value]) => {
-                                      if (typeof value === 'object' && value !== null && 'stepName' in value && 'options' in value) {
-                                        const step = value as { stepName: string; options: Array<{ name: string }> };
-                                        const optionNames = step.options.map(opt => opt.name).join(', ');
+                      // Agrupar comida por curso
+                      const courseMap = new Map<number, typeof food>();
+                      for (const item of food) {
+                        const course = (item as any).course || 1;
+                        if (!courseMap.has(course)) courseMap.set(course, []);
+                        courseMap.get(course)!.push(item);
+                      }
+                      const courseKeys = Array.from(courseMap.keys()).sort((a, b) => a - b);
+                      const hasMultipleCourses = courseKeys.length > 1;
+                      
+                      // Helper: agrupar items por asiento y renderizar
+                      const renderSeatGroups = (seatItems: typeof items) => {
+                        const seatMap = new Map<string, typeof items>();
+                        for (const item of seatItems) {
+                          const seat = (item as any).seat || "C";
+                          if (!seatMap.has(seat)) seatMap.set(seat, []);
+                          seatMap.get(seat)!.push(item);
+                        }
+                        const seatKeys = Array.from(seatMap.keys()).sort((a, b) => {
+                          if (a === "C") return 1;
+                          if (b === "C") return -1;
+                          return a.localeCompare(b, undefined, { numeric: true });
+                        });
+                        const hasMultipleSeats = seatKeys.length > 1 || (seatKeys.length === 1 && seatKeys[0] !== "C");
+                        
+                        return seatKeys.map(seatKey => (
+                          <div key={seatKey} className={hasMultipleSeats ? `rounded-lg border ${seatKey === "C" ? "border-amber-800/50 bg-amber-950/20" : "border-blue-800/50 bg-blue-950/20"} p-2.5` : ""}>
+                            {hasMultipleSeats && (
+                              <div className={`flex items-center gap-1.5 text-xs font-bold mb-2 pb-1.5 border-b ${
+                                seatKey === "C" ? "text-amber-400 border-amber-800/40" : "text-blue-400 border-blue-800/40"
+                              }`}>
+                                {seatKey === "C" 
+                                  ? <><ForkKnife className="size-3.5" weight="fill" /> Centro</>
+                                  : <><User className="size-3.5" weight="fill" /> {seatKey}</>
+                                }
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                            {seatMap.get(seatKey)!.map((item, idx) => {
+                              const customMods = parseCustomModifiers(item.customModifiers || null);
+                              return (
+                                <div key={idx} className="text-white">
+                                  <div className="flex items-start gap-3">
+                                    <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
+                                      {item.quantity}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="font-semibold text-base">{item.productName}</div>
+                                      {item.frostingName && (
+                                        <div className="text-blue-400 text-sm flex items-start gap-1 mt-1">
+                                          <span className="opacity-50">↳</span>
+                                          <span>{item.frostingName}</span>
+                                        </div>
+                                      )}
+                                      {item.dryToppingName && (
+                                        <div className="text-purple-400 text-sm flex items-start gap-1 mt-1">
+                                          <span className="opacity-50">↳</span>
+                                          <span>{item.dryToppingName}</span>
+                                        </div>
+                                      )}
+                                      {item.extraName && (
+                                        <div className="text-green-400 text-sm flex items-start gap-1 mt-1">
+                                          <span className="opacity-50">↳</span>
+                                          <span>{item.extraName}</span>
+                                        </div>
+                                      )}
+                                      {customMods && Object.entries(customMods).map(([key, value]) => {
+                                        if (typeof value === 'object' && value !== null && 'stepName' in value && 'options' in value) {
+                                          const step = value as { stepName: string; options: Array<{ name: string }> };
+                                          const optionNames = step.options.map(opt => opt.name).join(', ');
+                                          return (
+                                            <div key={key} className="text-amber-400 text-sm flex items-start gap-1 mt-1">
+                                              <span className="opacity-50">↳</span>
+                                              <span>{step.stepName}: {optionNames || 'N/A'}</span>
+                                            </div>
+                                          );
+                                        }
                                         return (
                                           <div key={key} className="text-amber-400 text-sm flex items-start gap-1 mt-1">
                                             <span className="opacity-50">↳</span>
-                                            <span>{step.stepName}: {optionNames || 'N/A'}</span>
+                                            <span>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
                                           </div>
                                         );
-                                      }
-                                      return (
-                                        <div key={key} className="text-amber-400 text-sm flex items-start gap-1 mt-1">
+                                      })}
+                                      {item.notes && (
+                                        <div className="text-yellow-400 text-sm flex items-start gap-1 mt-1 italic font-medium">
                                           <span className="opacity-50">↳</span>
-                                          <span>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+                                          <span>{item.notes}</span>
                                         </div>
-                                      );
-                                    })}
-                                    {item.notes && (
-                                      <div className="text-yellow-400 text-sm flex items-start gap-1 mt-1 italic font-medium">
-                                        <span className="opacity-50">↳</span>
-                                        <span>{item.notes}</span>
-                                      </div>
-                                    )}
+                                      )}
+                                    </div>
                                   </div>
+                                </div>
+                              );
+                            })}
+                            </div>
+                          </div>
+                        ));
+                      };
+                      
+                      return (
+                        <>
+                          {/* Bebidas siempre arriba */}
+                          {beverages.length > 0 && (
+                            <div className="rounded-lg border border-cyan-800/50 bg-cyan-950/20 p-3">
+                              <div className="flex items-center gap-1.5 text-sm font-bold mb-2 pb-2 border-b border-cyan-800/40 text-cyan-400">
+                                <BeerStein className="size-4" weight="fill" /> Bebidas
+                              </div>
+                              <div className="space-y-2">
+                                {beverages.map((item, idx) => {
+                                  const customMods = parseCustomModifiers(item.customModifiers || null);
+                                  return (
+                                    <div key={`bev-${idx}`} className="text-white">
+                                      <div className="flex items-start gap-3">
+                                        <div className="flex-shrink-0 w-7 h-7 rounded-full bg-cyan-600 flex items-center justify-center text-white text-sm font-bold">
+                                          {item.quantity}
+                                        </div>
+                                        <div className="flex-1">
+                                          <div className="font-semibold text-base">{item.productName}</div>
+                                          {item.frostingName && (
+                                            <div className="text-blue-400 text-sm flex items-start gap-1 mt-1">
+                                              <span className="opacity-50">↳</span>
+                                              <span>{item.frostingName}</span>
+                                            </div>
+                                          )}
+                                          {customMods && Object.entries(customMods).map(([key, value]) => {
+                                            if (typeof value === 'object' && value !== null && 'stepName' in value && 'options' in value) {
+                                              const step = value as { stepName: string; options: Array<{ name: string }> };
+                                              return (
+                                                <div key={key} className="text-amber-400 text-sm flex items-start gap-1 mt-1">
+                                                  <span className="opacity-50">↳</span>
+                                                  <span>{step.stepName}: {step.options.map(o => o.name).join(', ')}</span>
+                                                </div>
+                                              );
+                                            }
+                                            return null;
+                                          })}
+                                          {item.notes && (
+                                            <div className="text-yellow-400 text-sm flex items-start gap-1 mt-1 italic font-medium">
+                                              <span className="opacity-50">↳</span>
+                                              <span>{item.notes}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Comida agrupada por tiempo */}
+                          {courseKeys.map(courseNum => {
+                            const courseItems = courseMap.get(courseNum)!;
+                            return (
+                              <div key={`course-${courseNum}`}>
+                                {hasMultipleCourses && (
+                                  <div className="flex items-center gap-1.5 text-sm font-bold py-1.5 px-2 mb-2 rounded bg-emerald-950/40 border border-emerald-800/40 text-emerald-400">
+                                    <Timer className="size-4" weight="fill" />
+                                    <span>Tiempo {courseNum}</span>
+                                  </div>
+                                )}
+                                <div className="space-y-2">
+                                  {renderSeatGroups(courseItems)}
                                 </div>
                               </div>
                             );
                           })}
-                          </div>
-                        </div>
-                      ));
+                        </>
+                      );
                     })()}
 
                     {/* Botón para expandir/contraer */}

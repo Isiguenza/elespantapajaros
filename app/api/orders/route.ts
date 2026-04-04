@@ -44,7 +44,25 @@ export async function GET(request: NextRequest) {
     const result = await db.query.orders.findMany({
       where: whereClause,
       with: { 
-        items: true,
+        items: {
+          with: {
+            product: {
+              columns: {
+                id: true,
+                categoryId: true,
+              },
+              with: {
+                category: {
+                  columns: {
+                    id: true,
+                    name: true,
+                    isBeverage: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         table: true, // Incluir información de la mesa
       },
       orderBy: [desc(orders.createdAt)],
@@ -129,6 +147,7 @@ export async function POST(request: NextRequest) {
         extraName?: string | null;
         customModifiers?: string | null;
         seat?: string | null;
+        course?: number | null;
       }) => ({
         orderId: order.id,
         productId: item.productId,
@@ -145,6 +164,7 @@ export async function POST(request: NextRequest) {
         extraName: item.extraName || null,
         customModifiers: item.customModifiers || null,
         seat: item.seat || null,
+        course: item.course || 1,
       })
     );
 

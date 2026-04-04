@@ -18,6 +18,8 @@ import {
   ArrowRight,
   User,
   ForkKnife,
+  BeerStein,
+  Timer,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import type { Order } from "@/lib/types";
@@ -109,46 +111,93 @@ export default function DispatchPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {(() => {
               const activeItems = order.items?.filter((item: any) => !item.voided) || [];
-              const seatMap = new Map<string, typeof activeItems>();
-              for (const item of activeItems) {
-                const seat = (item as any).seat || "C";
-                if (!seatMap.has(seat)) seatMap.set(seat, []);
-                seatMap.get(seat)!.push(item);
+              const beverages = activeItems.filter((item: any) => item.product?.category?.isBeverage);
+              const food = activeItems.filter((item: any) => !item.product?.category?.isBeverage);
+              
+              // Group food by course
+              const courseMap = new Map<number, typeof food>();
+              for (const item of food) {
+                const course = (item as any).course || 1;
+                if (!courseMap.has(course)) courseMap.set(course, []);
+                courseMap.get(course)!.push(item);
               }
-              const seatKeys = Array.from(seatMap.keys()).sort((a, b) => {
-                if (a === "C") return 1;
-                if (b === "C") return -1;
-                return a.localeCompare(b, undefined, { numeric: true });
-              });
-              const showSeats = seatKeys.length > 1 || (seatKeys.length === 1 && seatKeys[0] !== "C");
-              return seatKeys.map(sk => (
-                <div key={sk}>
-                  {showSeats && (
-                    <div className={`flex items-center gap-1 text-xs font-bold mt-1 ${sk === "C" ? "text-amber-500" : "text-blue-500"}`}>
-                      {sk === "C" 
-                        ? <><ForkKnife className="size-3.5" weight="fill" /> Centro</>
-                        : <><User className="size-3.5" weight="fill" /> {sk}</>
-                      }
+              const courseKeys = Array.from(courseMap.keys()).sort((a, b) => a - b);
+              const hasMultipleCourses = courseKeys.length > 1;
+              
+              // Helper: render items grouped by seat
+              const renderSeatItems = (items: typeof activeItems) => {
+                const seatMap = new Map<string, typeof items>();
+                for (const item of items) {
+                  const seat = (item as any).seat || "C";
+                  if (!seatMap.has(seat)) seatMap.set(seat, []);
+                  seatMap.get(seat)!.push(item);
+                }
+                const seatKeys = Array.from(seatMap.keys()).sort((a, b) => {
+                  if (a === "C") return 1;
+                  if (b === "C") return -1;
+                  return a.localeCompare(b, undefined, { numeric: true });
+                });
+                const showSeats = seatKeys.length > 1 || (seatKeys.length === 1 && seatKeys[0] !== "C");
+                return seatKeys.map(sk => (
+                  <div key={sk}>
+                    {showSeats && (
+                      <div className={`flex items-center gap-1 text-xs font-bold mt-1 ${sk === "C" ? "text-amber-500" : "text-blue-500"}`}>
+                        {sk === "C" 
+                          ? <><ForkKnife className="size-3.5" weight="fill" /> Centro</>
+                          : <><User className="size-3.5" weight="fill" /> {sk}</>
+                        }
+                      </div>
+                    )}
+                    {seatMap.get(sk)!.map((item) => (
+                      <div key={item.id} className="flex items-start gap-2 text-sm">
+                        <Badge variant="secondary" className="shrink-0 text-xs">
+                          {item.quantity}x
+                        </Badge>
+                        <div>
+                          <span className="font-medium">{item.productName}</span>
+                          {item.notes && (
+                            <p className="text-xs text-muted-foreground">→ {item.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ));
+              };
+              
+              return (
+                <>
+                  {beverages.length > 0 && (
+                    <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-2">
+                      <div className="flex items-center gap-1 text-xs font-bold text-cyan-600 mb-1">
+                        <BeerStein className="size-3.5" weight="fill" /> Bebidas
+                      </div>
+                      {beverages.map((item) => (
+                        <div key={item.id} className="flex items-start gap-2 text-sm">
+                          <Badge variant="secondary" className="shrink-0 text-xs">{item.quantity}x</Badge>
+                          <div>
+                            <span className="font-medium">{item.productName}</span>
+                            {item.notes && <p className="text-xs text-muted-foreground">→ {item.notes}</p>}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
-                  {seatMap.get(sk)!.map((item) => (
-                    <div key={item.id} className="flex items-start gap-2 text-sm">
-                      <Badge variant="secondary" className="shrink-0 text-xs">
-                        {item.quantity}x
-                      </Badge>
-                      <div>
-                        <span className="font-medium">{item.productName}</span>
-                        {item.notes && (
-                          <p className="text-xs text-muted-foreground">→ {item.notes}</p>
-                        )}
-                      </div>
+                  {courseKeys.map(courseNum => (
+                    <div key={`c-${courseNum}`}>
+                      {hasMultipleCourses && (
+                        <div className="flex items-center gap-1 text-xs font-bold text-emerald-600 mt-1">
+                          <Timer className="size-3.5" weight="fill" /> Tiempo {courseNum}
+                        </div>
+                      )}
+                      {renderSeatItems(courseMap.get(courseNum)!)}
                     </div>
                   ))}
-                </div>
-              ));
+                </>
+              );
             })()}
           </div>
           {order.notes && (

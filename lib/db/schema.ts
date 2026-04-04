@@ -90,6 +90,7 @@ export const categories = pgTable("categories", {
   color: varchar("color", { length: 50 }),
   sortOrder: integer("sort_order").notNull().default(0),
   active: boolean("active").notNull().default(true),
+  isBeverage: boolean("is_beverage").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -250,6 +251,7 @@ export const orderItems = pgTable("order_items", {
   extraName: varchar("extra_name", { length: 255 }),
   customModifiers: text("custom_modifiers"), // JSON string with custom modifier selections
   seat: varchar("seat", { length: 10 }), // Seat assignment: "A1", "A2", ... or "C" for shared/center
+  course: integer("course").notNull().default(1), // Tiempo/curso: 1, 2, 3...
   deliveredToTable: boolean("delivered_to_table").notNull().default(false), // Track if item was delivered to table
   voided: boolean("voided").notNull().default(false),
   voidReason: text("void_reason"),

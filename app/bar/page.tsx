@@ -59,6 +59,7 @@ export default function BarPage() {
   const [tempGuestCount, setTempGuestCount] = useState(2);
   const [activeSeat, setActiveSeat] = useState<string>("C"); // "A1","A2",... o "C" (centro)
   const [showInitialGuestDialog, setShowInitialGuestDialog] = useState(false); // Modal al abrir mesa libre
+  const [activeCourse, setActiveCourse] = useState(1); // Tiempo/curso activo: 1, 2, 3...
   
   // Estados para eliminar items de cocina con razón
   const [showVoidDialog, setShowVoidDialog] = useState(false);
@@ -307,6 +308,7 @@ export default function BarPage() {
     setEmployeeName('');
     setShowDashboard(true);
     setCart([]);
+    setActiveCourse(1);
     toast.error('Sesión expirada por inactividad');
   }
 
@@ -513,9 +515,15 @@ export default function BarPage() {
                 itemId: item.id, // Guardar ID del item en BD
                 deliveredToTable: item.deliveredToTable || false, // Estado de entrega física
                 seat: item.seat || "C", // Asiento del item
+                course: item.course || 1,
+                isBeverage: item.product?.category?.isBeverage || false,
               }));
             allCartItems.push(...items);
           }
+          
+          // Restaurar activeCourse al máximo curso existente
+          const maxCourse = Math.max(...allCartItems.map(i => i.course || 1), 1);
+          setActiveCourse(maxCourse);
           
           console.log("🛒 Items cargados al carrito:", allCartItems);
           setCart(allCartItems);
@@ -559,6 +567,7 @@ export default function BarPage() {
     setShowTableSelection(true);
     setSelectedTable(null);
     setCart([]);
+    setActiveCourse(1);
     setCurrentOrderId(null);
     setCustomerName("");
   }
@@ -568,6 +577,9 @@ export default function BarPage() {
     const name = prompt("Nombre del cliente (opcional):");
     setCustomerName(name || "");
     setSelectedTable(null);
+    setCart([]);
+    setCurrentOrderId(null);
+    setActiveCourse(1);
     setGuestCount(1); // Para llevar es 1 persona por default
     setShowTableSelection(false);
   }
@@ -616,10 +628,14 @@ export default function BarPage() {
             itemId: item.id,
             deliveredToTable: item.deliveredToTable || false,
             seat: item.seat || "C",
+            course: item.course || 1,
+            isBeverage: item.product?.category?.isBeverage || false,
           }));
         allCartItems.push(...items);
       }
       
+      const maxCourse = Math.max(...allCartItems.map(i => i.course || 1), 1);
+      setActiveCourse(maxCourse);
       setCart(allCartItems);
       setCurrentOrderId(order.id); // Usar la primera orden como principal
       
@@ -730,6 +746,7 @@ export default function BarPage() {
       setShowTableSelection(true);
       setSelectedTable(null);
       setCart([]);
+      setActiveCourse(1);
       setCurrentOrderId(null);
       setCustomerName("");
       
@@ -766,6 +783,7 @@ export default function BarPage() {
       extraName: item.extraName || null,
       customModifiers: item.customModifiers || null,
       seat: item.seat || "C",
+      course: item.course || 1,
     }));
 
     try {
@@ -964,10 +982,15 @@ export default function BarPage() {
   function handleConfirmNotes() {
     if (!pendingCartItem) return;
     
+    const isBev = pendingCartItem.productId 
+      ? categories.find(c => c.id === products.find(p => p.id === pendingCartItem.productId)?.categoryId)?.isBeverage || false
+      : false;
     const itemWithNotes = {
       ...pendingCartItem,
       notes: tempNotes.trim(),
       seat: selectedTable ? activeSeat : "C",
+      course: activeCourse,
+      isBeverage: isBev,
     };
     
     setCart([...cart, itemWithNotes]);
@@ -1050,6 +1073,7 @@ export default function BarPage() {
       }
     });
 
+    const isBev = categories.find(c => c.id === selectedProduct.categoryId)?.isBeverage || false;
     const newItem: CartItem = {
       productId: selectedProduct.id,
       productName: selectedProduct.name,
@@ -1064,6 +1088,8 @@ export default function BarPage() {
       extraName: selectedExtras.length > 0 ? selectedExtras[0].name : undefined,
       customModifiers: Object.keys(customModifiersData).length > 0 ? JSON.stringify(customModifiersData) : null,
       seat: selectedTable ? activeSeat : "C",
+      course: activeCourse,
+      isBeverage: isBev,
     };
 
     // Buscar si ya existe un item idéntico en el carrito (mismo producto, mismos mods, mismo asiento)
@@ -1788,12 +1814,16 @@ export default function BarPage() {
       const sentItems = cart.filter(item => item.sentToKitchen);
       if (sentItems.length === 0) return;
 
-      // Agrupar items por asiento, luego por producto
-      const seatGroups = new Map<string, Map<string, { name: string; qty: number; price: number }>>();
+      // Agrupar items por curso, luego por asiento, luego por producto
+      type TicketItem = { name: string; qty: number; price: number };
+      const courseGroups = new Map<number, Map<string, Map<string, TicketItem>>>();
       for (const item of sentItems) {
+        const course = item.course || 1;
         const seat = item.seat || "C";
-        if (!seatGroups.has(seat)) seatGroups.set(seat, new Map());
-        const group = seatGroups.get(seat)!;
+        if (!courseGroups.has(course)) courseGroups.set(course, new Map());
+        const seatMap = courseGroups.get(course)!;
+        if (!seatMap.has(seat)) seatMap.set(seat, new Map());
+        const group = seatMap.get(seat)!;
         const key = `${item.productId}-${item.unitPrice}`;
         const existing = group.get(key);
         if (existing) {
@@ -1802,16 +1832,11 @@ export default function BarPage() {
           group.set(key, { name: item.productName, qty: item.quantity, price: item.unitPrice });
         }
       }
-      
-      // Ordenar asientos: A1, A2, ... luego C
-      const seatKeys = Array.from(seatGroups.keys()).sort((a, b) => {
-        if (a === "C") return 1;
-        if (b === "C") return -1;
-        return a.localeCompare(b, undefined, { numeric: true });
-      });
+      const courseKeys = Array.from(courseGroups.keys()).sort((a, b) => a - b);
+      const hasMultipleCourses = courseKeys.length > 1;
 
-      const allItems: { name: string; qty: number; price: number }[] = [];
-      seatGroups.forEach(g => g.forEach(v => allItems.push(v)));
+      const allItems: TicketItem[] = [];
+      courseGroups.forEach(seatMap => seatMap.forEach(g => g.forEach(v => allItems.push(v))));
       const subtotal = allItems.reduce((sum, i) => sum + (i.qty * i.price), 0);
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
@@ -1822,7 +1847,7 @@ export default function BarPage() {
       const pageW = 58;
       const margin = 3;
       const contentW = pageW - margin * 2;
-      const totalItemLines = allItems.length + seatKeys.length;
+      const totalItemLines = allItems.length + courseKeys.length * 2;
       const estimatedH = 80 + totalItemLines * 12 + 40;
       
       const doc = new jsPDF({
@@ -1897,38 +1922,55 @@ export default function BarPage() {
       doc.line(margin, y, pageW - margin, y);
       y += 3;
 
-      // Items agrupados por asiento
-      for (const seatKey of seatKeys) {
-        const seatItems = Array.from(seatGroups.get(seatKey)!.values());
-        
-        // Header de asiento (solo si hay más de 1 asiento)
-        if (seatKeys.length > 1 || seatKey !== "C") {
+      // Items agrupados por curso, luego por asiento
+      for (const courseNum of courseKeys) {
+        const seatMap = courseGroups.get(courseNum)!;
+        const seatKeys = Array.from(seatMap.keys()).sort((a, b) => {
+          if (a === "C") return 1;
+          if (b === "C") return -1;
+          return a.localeCompare(b, undefined, { numeric: true });
+        });
+
+        // Header de tiempo (solo si hay más de 1 curso)
+        if (hasMultipleCourses) {
           doc.setFontSize(7);
           doc.setFont("helvetica", "bold");
-          const seatLabel = seatKey === "C" ? "— Centro —" : `— ${seatKey} —`;
-          doc.text(seatLabel, pageW / 2, y, { align: "center" });
+          doc.text(`— Tiempo ${courseNum} —`, pageW / 2, y, { align: "center" });
           y += 3.5;
         }
-        
-        doc.setFontSize(8);
-        for (const item of seatItems) {
-          const lineTotal = item.qty * item.price;
-          const qtyName = `${item.qty}x ${item.name}`;
-          const priceStr = `$${lineTotal.toFixed(0)}`;
 
-          doc.setFont("helvetica", "normal");
-          const maxNameW = contentW - 14;
-          const lines = doc.splitTextToSize(qtyName, maxNameW);
-          for (let i = 0; i < lines.length; i++) {
-            doc.text(lines[i], margin, y);
-            if (i === 0) {
-              doc.text(priceStr, pageW - margin, y, { align: "right" });
-            }
+        for (const seatKey of seatKeys) {
+          const seatItems = Array.from(seatMap.get(seatKey)!.values());
+          
+          // Header de asiento (solo si hay más de 1 asiento)
+          if (seatKeys.length > 1 || seatKey !== "C") {
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "bold");
+            const seatLabel = seatKey === "C" ? "— Centro —" : `— ${seatKey} —`;
+            doc.text(seatLabel, pageW / 2, y, { align: "center" });
             y += 3.5;
+          }
+          
+          doc.setFontSize(8);
+          for (const item of seatItems) {
+            const lineTotal = item.qty * item.price;
+            const qtyName = `${item.qty}x ${item.name}`;
+            const priceStr = `$${lineTotal.toFixed(0)}`;
+
+            doc.setFont("helvetica", "normal");
+            const maxNameW = contentW - 14;
+            const lines = doc.splitTextToSize(qtyName, maxNameW);
+            for (let i = 0; i < lines.length; i++) {
+              doc.text(lines[i], margin, y);
+              if (i === 0) {
+                doc.text(priceStr, pageW - margin, y, { align: "right" });
+              }
+              y += 3.5;
+            }
+            y += 1;
           }
           y += 1;
         }
-        y += 1;
       }
 
       // Espacio antes del resumen
@@ -1981,6 +2023,7 @@ export default function BarPage() {
     
     // Limpiar todo y volver a selección de mesas
     setCart([]);
+    setActiveCourse(1);
     setLoyaltyCard(null);
     setShowingPayment(false);
     setShowingLoyaltyStep(false);
@@ -2595,6 +2638,32 @@ export default function BarPage() {
               </button>
             </div>
           )}
+          {/* Selector de tiempos/cursos */}
+          {cart.length > 0 && (
+            <div className="flex items-center gap-2 mb-2">
+              <div className="flex gap-1 flex-wrap flex-1">
+                {Array.from({ length: activeCourse }, (_, i) => i + 1).map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setActiveCourse(c)}
+                    className={`px-2.5 py-1 rounded text-xs font-bold transition-colors ${
+                      activeCourse === c
+                        ? "bg-emerald-600 text-white"
+                        : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
+                    }`}
+                  >
+                    T{c}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setActiveCourse(prev => prev + 1)}
+                className="px-2.5 py-1 rounded text-xs font-bold bg-emerald-900/50 text-emerald-400 hover:bg-emerald-800 hover:text-white transition-colors border border-emerald-700/50"
+              >
+                + Tiempo
+              </button>
+            </div>
+          )}
           {loyaltyCard && (
             <div className="mb-2 p-2 bg-blue-950/30 rounded text-sm flex items-start justify-between gap-2 border border-blue-900/50">
               <div className="flex-1">
@@ -2630,19 +2699,40 @@ export default function BarPage() {
                 ? [...Array.from({ length: guestCount }, (_, i) => `A${i + 1}`), "C"]
                 : ["C"];
               const sortedCart = [...cart].map((item, idx) => ({ item, idx }));
-              if (selectedTable) {
-                sortedCart.sort((a, b) => {
+              // Ordenar: primero por curso, luego por asiento
+              sortedCart.sort((a, b) => {
+                const courseA = a.item.course || 1;
+                const courseB = b.item.course || 1;
+                if (courseA !== courseB) return courseA - courseB;
+                if (selectedTable) {
                   const aIdx = seatOrder.indexOf(a.item.seat || "C");
                   const bIdx = seatOrder.indexOf(b.item.seat || "C");
                   return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
-                });
-              }
+                }
+                return 0;
+              });
+              const maxCourseInCart = Math.max(...cart.map(i => i.course || 1), 1);
+              const showCourseHeaders = maxCourseInCart > 1;
+              let lastCourse = 0;
               let lastSeat = "";
               return sortedCart.map(({ item, idx: index }) => {
+                const itemCourse = item.course || 1;
+                const showCourseHeader = showCourseHeaders && itemCourse !== lastCourse;
+                if (showCourseHeader) {
+                  lastCourse = itemCourse;
+                  lastSeat = ""; // Reset seat tracking on course change
+                }
                 const showSeatHeader = selectedTable && (item.seat || "C") !== lastSeat;
                 if (showSeatHeader) lastSeat = item.seat || "C";
                 return (
                   <div key={index}>
+                    {showCourseHeader && (
+                      <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1.5 mt-3 mb-1 rounded bg-emerald-950/40 border border-emerald-800/40 text-emerald-400`}>
+                        <span className="text-sm">T{itemCourse}</span>
+                        <span className="text-emerald-600">•</span>
+                        <span>Tiempo {itemCourse}</span>
+                      </div>
+                    )}
                     {showSeatHeader && (
                       <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 mt-2 ${
                         item.seat === "C" ? "text-amber-400" : "text-blue-400"

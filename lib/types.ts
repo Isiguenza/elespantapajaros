@@ -50,6 +50,7 @@ export interface Category {
   icon: string | null;
   sortOrder: number;
   active: boolean;
+  isBeverage?: boolean;
 }
 
 export interface Ingredient {
@@ -171,9 +172,16 @@ export interface OrderItem {
   extraId: string | null;
   extraName: string | null;
   customModifiers: string | null;
+  seat?: string | null;
+  course?: number;
   frosting?: Frosting | null;
   dryTopping?: DryTopping | null;
   extra?: Extra | null;
+  product?: {
+    id: string;
+    categoryId: string | null;
+    category?: { id: string; name: string; isBeverage: boolean } | null;
+  } | null;
 }
 
 export interface OrderPayment {
@@ -207,6 +215,8 @@ export interface CartItem {
   itemId?: string; // ID del order_item en BD
   deliveredToTable?: boolean; // Si ya fue entregado a la mesa
   seat?: string | null; // Asiento: "A1", "A2", ... o "C" (centro/compartido)
+  course?: number; // Tiempo/curso: 1, 2, 3...
+  isBeverage?: boolean; // Si el item es bebida (del frontend)
 }
 
 export interface CashRegister {
