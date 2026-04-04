@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
         extraId?: string | null;
         extraName?: string | null;
         customModifiers?: string | null;
+        seat?: string | null;
       }) => ({
         orderId: order.id,
         productId: item.productId,
@@ -143,6 +144,7 @@ export async function POST(request: NextRequest) {
         extraId: item.extraId || null,
         extraName: item.extraName || null,
         customModifiers: item.customModifiers || null,
+        seat: item.seat || null,
       })
     );
 

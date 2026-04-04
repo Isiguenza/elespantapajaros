@@ -249,6 +249,7 @@ export const orderItems = pgTable("order_items", {
   extraId: uuid("extra_id").references(() => extras.id),
   extraName: varchar("extra_name", { length: 255 }),
   customModifiers: text("custom_modifiers"), // JSON string with custom modifier selections
+  seat: varchar("seat", { length: 10 }), // Seat assignment: "A1", "A2", ... or "C" for shared/center
   deliveredToTable: boolean("delivered_to_table").notNull().default(false), // Track if item was delivered to table
   voided: boolean("voided").notNull().default(false),
   voidReason: text("void_reason"),

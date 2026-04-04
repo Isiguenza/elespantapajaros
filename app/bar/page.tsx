@@ -21,7 +21,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank, House, Coffee, ShoppingBag, Users, Printer } from "@phosphor-icons/react";
+import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank, House, Coffee, ShoppingBag, Users, Printer, User, ForkKnife } from "@phosphor-icons/react";
 import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 import { toast } from "sonner";
 import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption, Table, Order } from "@/lib/types";
@@ -57,6 +57,8 @@ export default function BarPage() {
   const [guestCount, setGuestCount] = useState(2);
   const [showGuestCountDialog, setShowGuestCountDialog] = useState(false);
   const [tempGuestCount, setTempGuestCount] = useState(2);
+  const [activeSeat, setActiveSeat] = useState<string>("C"); // "A1","A2",... o "C" (centro)
+  const [showInitialGuestDialog, setShowInitialGuestDialog] = useState(false); // Modal al abrir mesa libre
   
   // Estados para eliminar items de cocina con razón
   const [showVoidDialog, setShowVoidDialog] = useState(false);
@@ -510,6 +512,7 @@ export default function BarPage() {
                 orderId: order.id, // Guardar ID de la orden
                 itemId: item.id, // Guardar ID del item en BD
                 deliveredToTable: item.deliveredToTable || false, // Estado de entrega física
+                seat: item.seat || "C", // Asiento del item
               }));
             allCartItems.push(...items);
           }
@@ -541,7 +544,9 @@ export default function BarPage() {
             toast.success(`Cuenta de Mesa ${table.number} cargada (${allCartItems.length} items)`);
           }
         } else {
-          toast.success(`Mesa ${table.number} seleccionada`);
+          // Mesa libre sin órdenes — pedir número de personas
+          setActiveSeat("C");
+          setShowInitialGuestDialog(true);
         }
       }
     } catch (error) {
@@ -610,6 +615,7 @@ export default function BarPage() {
             orderId: dOrder.id,
             itemId: item.id,
             deliveredToTable: item.deliveredToTable || false,
+            seat: item.seat || "C",
           }));
         allCartItems.push(...items);
       }
@@ -759,6 +765,7 @@ export default function BarPage() {
       extraId: item.extraId || null,
       extraName: item.extraName || null,
       customModifiers: item.customModifiers || null,
+      seat: item.seat || "C",
     }));
 
     try {
@@ -960,6 +967,7 @@ export default function BarPage() {
     const itemWithNotes = {
       ...pendingCartItem,
       notes: tempNotes.trim(),
+      seat: selectedTable ? activeSeat : "C",
     };
     
     setCart([...cart, itemWithNotes]);
@@ -1055,15 +1063,17 @@ export default function BarPage() {
       extraId: selectedExtras.length > 0 ? selectedExtras[0].id : undefined,
       extraName: selectedExtras.length > 0 ? selectedExtras[0].name : undefined,
       customModifiers: Object.keys(customModifiersData).length > 0 ? JSON.stringify(customModifiersData) : null,
+      seat: selectedTable ? activeSeat : "C",
     };
 
-    // Buscar si ya existe un item idéntico en el carrito
+    // Buscar si ya existe un item idéntico en el carrito (mismo producto, mismos mods, mismo asiento)
     const existingItemIndex = cart.findIndex((item) => 
       item.productId === newItem.productId &&
       item.frostingId === newItem.frostingId &&
       item.dryToppingId === newItem.dryToppingId &&
       item.extraId === newItem.extraId &&
-      item.customModifiers === newItem.customModifiers
+      item.customModifiers === newItem.customModifiers &&
+      item.seat === newItem.seat
     );
 
     if (existingItemIndex >= 0) {
@@ -1778,24 +1788,31 @@ export default function BarPage() {
       const sentItems = cart.filter(item => item.sentToKitchen);
       if (sentItems.length === 0) return;
 
-      // Agrupar items iguales sumando cantidades
-      const grouped = new Map<string, { name: string; qty: number; price: number }>();
+      // Agrupar items por asiento, luego por producto
+      const seatGroups = new Map<string, Map<string, { name: string; qty: number; price: number }>>();
       for (const item of sentItems) {
+        const seat = item.seat || "C";
+        if (!seatGroups.has(seat)) seatGroups.set(seat, new Map());
+        const group = seatGroups.get(seat)!;
         const key = `${item.productId}-${item.unitPrice}`;
-        const existing = grouped.get(key);
+        const existing = group.get(key);
         if (existing) {
           existing.qty += item.quantity;
         } else {
-          grouped.set(key, {
-            name: item.productName,
-            qty: item.quantity,
-            price: item.unitPrice,
-          });
+          group.set(key, { name: item.productName, qty: item.quantity, price: item.unitPrice });
         }
       }
+      
+      // Ordenar asientos: A1, A2, ... luego C
+      const seatKeys = Array.from(seatGroups.keys()).sort((a, b) => {
+        if (a === "C") return 1;
+        if (b === "C") return -1;
+        return a.localeCompare(b, undefined, { numeric: true });
+      });
 
-      const items = Array.from(grouped.values());
-      const subtotal = items.reduce((sum, i) => sum + (i.qty * i.price), 0);
+      const allItems: { name: string; qty: number; price: number }[] = [];
+      seatGroups.forEach(g => g.forEach(v => allItems.push(v)));
+      const subtotal = allItems.reduce((sum, i) => sum + (i.qty * i.price), 0);
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
         : (cartTotal * tipPercentage / 100);
@@ -1805,8 +1822,8 @@ export default function BarPage() {
       const pageW = 58;
       const margin = 3;
       const contentW = pageW - margin * 2;
-      // Estimar altura: header(logo+addr+date+mesa) + items + footer(subtotal+total+msg)
-      const estimatedH = 80 + items.length * 10 + 40;
+      const totalItemLines = allItems.length + seatKeys.length;
+      const estimatedH = 80 + totalItemLines * 12 + 40;
       
       const doc = new jsPDF({
         unit: "mm",
@@ -1880,22 +1897,36 @@ export default function BarPage() {
       doc.line(margin, y, pageW - margin, y);
       y += 3;
 
-      // Items
-      doc.setFontSize(7);
-      for (const item of items) {
-        const lineTotal = item.qty * item.price;
-        const qtyName = `${item.qty}x ${item.name}`;
-        const priceStr = `$${lineTotal.toFixed(0)}`;
+      // Items agrupados por asiento
+      for (const seatKey of seatKeys) {
+        const seatItems = Array.from(seatGroups.get(seatKey)!.values());
+        
+        // Header de asiento (solo si hay más de 1 asiento)
+        if (seatKeys.length > 1 || seatKey !== "C") {
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "bold");
+          const seatLabel = seatKey === "C" ? "— Centro —" : `— ${seatKey} —`;
+          doc.text(seatLabel, pageW / 2, y, { align: "center" });
+          y += 3.5;
+        }
+        
+        doc.setFontSize(8);
+        for (const item of seatItems) {
+          const lineTotal = item.qty * item.price;
+          const qtyName = `${item.qty}x ${item.name}`;
+          const priceStr = `$${lineTotal.toFixed(0)}`;
 
-        doc.setFont("helvetica", "normal");
-        // Nombre del producto (puede ser largo, hacer wrap)
-        const lines = doc.splitTextToSize(qtyName, contentW - 12);
-        for (let i = 0; i < lines.length; i++) {
-          doc.text(lines[i], margin, y);
-          if (i === 0) {
-            doc.text(priceStr, pageW - margin, y, { align: "right" });
+          doc.setFont("helvetica", "normal");
+          const maxNameW = contentW - 14;
+          const lines = doc.splitTextToSize(qtyName, maxNameW);
+          for (let i = 0; i < lines.length; i++) {
+            doc.text(lines[i], margin, y);
+            if (i === 0) {
+              doc.text(priceStr, pageW - margin, y, { align: "right" });
+            }
+            y += 3.5;
           }
-          y += 3;
+          y += 1;
         }
         y += 1;
       }
@@ -2533,6 +2564,37 @@ export default function BarPage() {
               <span className="font-bold text-white">{formatCurrency(cartTotal)}</span>
             </div>
           </div>
+          {/* Selector de asientos */}
+          {selectedTable && guestCount > 0 && (
+            <div className="flex gap-1 mb-2 flex-wrap">
+              {Array.from({ length: guestCount }).map((_, i) => {
+                const seatId = `A${i + 1}`;
+                return (
+                  <button
+                    key={seatId}
+                    onClick={() => setActiveSeat(seatId)}
+                    className={`px-3 py-1.5 rounded text-xs font-bold transition-colors ${
+                      activeSeat === seatId
+                        ? "bg-blue-600 text-white"
+                        : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
+                    }`}
+                  >
+                    {seatId}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setActiveSeat("C")}
+                className={`px-3 py-1.5 rounded text-xs font-bold transition-colors ${
+                  activeSeat === "C"
+                    ? "bg-amber-600 text-white"
+                    : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-white"
+                }`}
+              >
+                C
+              </button>
+            </div>
+          )}
           {loyaltyCard && (
             <div className="mb-2 p-2 bg-blue-950/30 rounded text-sm flex items-start justify-between gap-2 border border-blue-900/50">
               <div className="flex-1">
@@ -2557,139 +2619,130 @@ export default function BarPage() {
         </div>
 
         {/* Items del carrito */}
-        <div className="flex-1 overflow-auto p-4 space-y-3">
+        <div className="flex-1 overflow-auto p-4 space-y-2">
           {cart.length === 0 ? (
             <div className="text-neutral-500 text-center py-8 text-sm">
               Carrito vacío
             </div>
           ) : (
-            cart.map((item, index) => (
-              <div key={index} className={`rounded-lg overflow-hidden ${item.sentToKitchen ? 'bg-neutral-900 border border-neutral-800' : 'bg-neutral-900 border border-neutral-800'}`}>
-                <div className={`p-3 ${item.sentToKitchen ? 'opacity-75' : ''}`}>
-                  <div className="flex items-start gap-3 mb-2">
-                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                      {item.quantity}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <div className="font-medium text-sm text-white">{item.productName}</div>
-                            {item.sentToKitchen && item.orderStatus === "ready" && !item.deliveredToTable && (
-                              <Badge variant="default" className="text-xs bg-green-600">
-                                ✓ Listo para mesa
-                              </Badge>
+            (() => {
+              const seatOrder = selectedTable 
+                ? [...Array.from({ length: guestCount }, (_, i) => `A${i + 1}`), "C"]
+                : ["C"];
+              const sortedCart = [...cart].map((item, idx) => ({ item, idx }));
+              if (selectedTable) {
+                sortedCart.sort((a, b) => {
+                  const aIdx = seatOrder.indexOf(a.item.seat || "C");
+                  const bIdx = seatOrder.indexOf(b.item.seat || "C");
+                  return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+                });
+              }
+              let lastSeat = "";
+              return sortedCart.map(({ item, idx: index }) => {
+                const showSeatHeader = selectedTable && (item.seat || "C") !== lastSeat;
+                if (showSeatHeader) lastSeat = item.seat || "C";
+                return (
+                  <div key={index}>
+                    {showSeatHeader && (
+                      <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 mt-2 ${
+                        item.seat === "C" ? "text-amber-400" : "text-blue-400"
+                      }`}>
+                        {item.seat === "C" 
+                          ? <><ForkKnife className="size-3.5" weight="fill" /> Centro (compartido)</>
+                          : <><User className="size-3.5" weight="fill" /> Asiento {item.seat}</>
+                        }
+                      </div>
+                    )}
+                    <div className="rounded-lg overflow-hidden bg-neutral-900 border border-neutral-800">
+                      <div className={`p-3 ${item.sentToKitchen ? 'opacity-75' : ''}`}>
+                        <div className="flex items-start gap-3 mb-2">
+                          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                            {item.quantity}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="font-medium text-sm text-white">{item.productName}</div>
+                                  {item.sentToKitchen && item.orderStatus === "ready" && !item.deliveredToTable && (
+                                    <Badge variant="default" className="text-xs bg-green-600">✓ Listo</Badge>
+                                  )}
+                                  {item.sentToKitchen && item.deliveredToTable && (
+                                    <Badge variant="secondary" className="text-xs bg-blue-600">✓ Entregado</Badge>
+                                  )}
+                                  {item.sentToKitchen && item.orderStatus === "preparing" && (
+                                    <Badge variant="destructive" className="text-xs">En cocina</Badge>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex-shrink-0 flex items-start gap-2">
+                                <span className="font-semibold text-white">{formatCurrency(item.unitPrice * item.quantity)}</span>
+                                <Button variant="ghost" size="sm" onClick={() => removeFromCart(index)} className="h-6 w-6 p-0 text-red-400 hover:text-red-300">
+                                  <Trash className="size-3" />
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="text-xs text-neutral-500 mt-0.5">{formatCurrency(item.unitPrice)} c/u</div>
+                            {(item.frostingName || item.dryToppingName || item.extraName || item.customModifiers || item.notes) && (
+                              <div className="mt-1 space-y-0.5">
+                                {item.frostingName && (
+                                  <div className="text-xs text-muted-foreground flex items-start gap-1">
+                                    <span className="opacity-50">↳</span><span>{item.frostingName}</span>
+                                  </div>
+                                )}
+                                {item.dryToppingName && (
+                                  <div className="text-xs text-muted-foreground flex items-start gap-1">
+                                    <span className="opacity-50">↳</span><span>{item.dryToppingName}</span>
+                                  </div>
+                                )}
+                                {item.extraName && (
+                                  <div className="text-xs text-muted-foreground flex items-start gap-1">
+                                    <span className="opacity-50">↳</span><span>{item.extraName}</span>
+                                  </div>
+                                )}
+                                {item.customModifiers && (() => {
+                                  try {
+                                    const modifiers = JSON.parse(item.customModifiers);
+                                    return Object.values(modifiers).map((mod: any, idx: number) => (
+                                      <div key={idx} className="text-xs text-muted-foreground flex items-start gap-1">
+                                        <span className="opacity-50">↳</span>
+                                        <span>{mod.stepName}: {mod.options.map((opt: any) => opt.name).join(', ')}</span>
+                                      </div>
+                                    ));
+                                  } catch { return null; }
+                                })()}
+                                {item.notes && (
+                                  <div className="text-xs text-yellow-600 dark:text-yellow-500 flex items-start gap-1 italic">
+                                    <span className="opacity-50">↳</span><span>{item.notes}</span>
+                                  </div>
+                                )}
+                              </div>
                             )}
-                            {item.sentToKitchen && item.deliveredToTable && (
-                              <Badge variant="secondary" className="text-xs bg-blue-600">
-                                ✓ Entregado
-                              </Badge>
-                            )}
-                            {item.sentToKitchen && item.orderStatus === "preparing" && (
-                              <Badge variant="destructive" className="text-xs">
-                                En cocina
-                              </Badge>
+                            {!item.sentToKitchen && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <Button variant="outline" size="sm" onClick={() => updateQuantity(index, -1)} className="h-7 w-7 p-0 bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white">
+                                  <Minus className="size-3" />
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => updateQuantity(index, 1)} className="h-7 w-7 p-0 bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white">
+                                  <Plus className="size-3" />
+                                </Button>
+                              </div>
                             )}
                           </div>
                         </div>
-                        <div className="flex-shrink-0 flex items-start gap-2">
-                          <span className="font-semibold text-white">
-                            {formatCurrency(item.unitPrice * item.quantity)}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeFromCart(index)}
-                            className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
-                          >
-                            <Trash className="size-3" />
-                          </Button>
-                        </div>
                       </div>
-                      <div className="text-xs text-neutral-500 mt-0.5">
-                        {formatCurrency(item.unitPrice)} c/u
-                      </div>
-                      {/* Resumen de modificadores */}
-                      {(item.frostingName || item.dryToppingName || item.extraName || item.customModifiers || item.notes) && (
-                        <div className="mt-1 space-y-0.5">
-                          {item.frostingName && (
-                            <div className="text-xs text-muted-foreground flex items-start gap-1">
-                              <span className="opacity-50">↳</span>
-                              <span>{item.frostingName}</span>
-                            </div>
-                          )}
-                          {item.dryToppingName && (
-                            <div className="text-xs text-muted-foreground flex items-start gap-1">
-                              <span className="opacity-50">↳</span>
-                              <span>{item.dryToppingName}</span>
-                            </div>
-                          )}
-                          {item.extraName && (
-                            <div className="text-xs text-muted-foreground flex items-start gap-1">
-                              <span className="opacity-50">↳</span>
-                              <span>{item.extraName}</span>
-                            </div>
-                          )}
-                          {item.customModifiers && (() => {
-                            try {
-                              const modifiers = JSON.parse(item.customModifiers);
-                              return Object.values(modifiers).map((mod: any, idx: number) => (
-                                <div key={idx} className="text-xs text-muted-foreground flex items-start gap-1">
-                                  <span className="opacity-50">↳</span>
-                                  <span>{mod.stepName}: {mod.options.map((opt: any) => opt.name).join(', ')}</span>
-                                </div>
-                              ));
-                            } catch (e) {
-                              return null;
-                            }
-                          })()}
-                          {item.notes && (
-                            <div className="text-xs text-yellow-600 dark:text-yellow-500 flex items-start gap-1 italic">
-                              <span className="opacity-50">↳</span>
-                              <span>{item.notes}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {!item.sentToKitchen && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateQuantity(index, -1)}
-                            className="h-7 w-7 p-0 bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white"
-                          >
-                            <Minus className="size-3" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateQuantity(index, 1)}
-                            className="h-7 w-7 p-0 bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-white"
-                          >
-                            <Plus className="size-3" />
+                      {item.sentToKitchen && item.orderStatus === "ready" && !item.deliveredToTable && (
+                        <div className="bg-neutral-800 p-2 opacity-100 border-t border-neutral-700">
+                          <Button onClick={() => handleMarkAsDelivered(index)} className="w-full bg-green-600 hover:bg-green-700 text-white border-0 font-semibold shadow-lg" size="sm">
+                            <span className="mr-2">✓</span>Marcar como entregado a mesa
                           </Button>
                         </div>
                       )}
                     </div>
                   </div>
-                </div>
-                
-                {/* Footer para items ready no entregados */}
-                {item.sentToKitchen && item.orderStatus === "ready" && !item.deliveredToTable && (
-                  <div className="bg-neutral-800 p-2 opacity-100 border-t border-neutral-700">
-                    <Button
-                      onClick={() => handleMarkAsDelivered(index)}
-                      className="w-full bg-green-600 hover:bg-green-700 text-white border-0 font-semibold shadow-lg"
-                      size="sm"
-                    >
-                      <span className="mr-2">✓</span>
-                      Marcar como entregado a mesa
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))
+                );
+              });
+            })()
           )}
         </div>
 
@@ -4005,6 +4058,78 @@ export default function BarPage() {
               setShowGuestCountDialog(false);
               toast.success(`Número de personas actualizado: ${tempGuestCount}`);
               // Persistir en BD si hay mesa seleccionada
+              if (selectedTable) {
+                try {
+                  await fetch(`/api/tables/${selectedTable.id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ guestCount: tempGuestCount }),
+                  });
+                } catch (e) {
+                  console.error("Error persisting guestCount:", e);
+                }
+              }
+            }}>
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Inicial de Número de Personas (al abrir mesa libre) */}
+      <Dialog open={showInitialGuestDialog} onOpenChange={(open) => {
+        if (!open) {
+          // Si cierra sin confirmar, usar 1 persona por defecto
+          setGuestCount(1);
+          setTempGuestCount(1);
+          setActiveSeat("C");
+          setShowInitialGuestDialog(false);
+          if (selectedTable) {
+            fetch(`/api/tables/${selectedTable.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ guestCount: 1 }),
+            }).catch(() => {});
+          }
+          toast.success(`Mesa ${selectedTable?.number} seleccionada`);
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Cuántas personas?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-center gap-4">
+              <Button variant="outline" size="lg" onClick={() => setTempGuestCount(Math.max(1, tempGuestCount - 1))} className="h-16 w-16 p-0">
+                <Minus className="size-6" />
+              </Button>
+              <div className="text-6xl font-bold w-32 text-center">{tempGuestCount}</div>
+              <Button variant="outline" size="lg" onClick={() => setTempGuestCount(tempGuestCount + 1)} className="h-16 w-16 p-0">
+                <Plus className="size-6" />
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground text-center">
+              Puedes cambiarlo después desde el botón de personas
+            </p>
+            <div className="grid grid-cols-4 gap-2">
+              {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                <Button
+                  key={n}
+                  variant={tempGuestCount === n ? "default" : "outline"}
+                  onClick={() => setTempGuestCount(n)}
+                  className="h-12"
+                >
+                  {n}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="w-full" size="lg" onClick={async () => {
+              setGuestCount(tempGuestCount);
+              setActiveSeat("A1");
+              setShowInitialGuestDialog(false);
+              toast.success(`Mesa ${selectedTable?.number} — ${tempGuestCount} persona${tempGuestCount > 1 ? 's' : ''}`);
               if (selectedTable) {
                 try {
                   await fetch(`/api/tables/${selectedTable.id}`, {

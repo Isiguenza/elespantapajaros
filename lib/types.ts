@@ -206,6 +206,7 @@ export interface CartItem {
   orderId?: string; // ID de la orden a la que pertenece este item
   itemId?: string; // ID del order_item en BD
   deliveredToTable?: boolean; // Si ya fue entregado a la mesa
+  seat?: string | null; // Asiento: "A1", "A2", ... o "C" (centro/compartido)
 }
 
 export interface CashRegister {
