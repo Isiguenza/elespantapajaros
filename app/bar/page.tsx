@@ -1901,7 +1901,8 @@ export default function BarPage() {
         tip: Math.round(tipAmount),
         total: Math.round(total),
         tableNumber: selectedTable?.number || "",
-        isDelivery: !selectedTable
+        isDelivery: !selectedTable,
+        paymentMethod: paymentMethod || "cash"
       };
 
       // Enviar al servidor local de impresión (iMac - IP reservada: 192.168.0.160)
@@ -2084,10 +2085,11 @@ export default function BarPage() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        console.error("❌ Error en pago:", errData);
         throw new Error(errData.error || "Error en pago");
       }
       
-      toast.success("Pago con terminal registrado");
+      toast.success("Pago con tarjeta registrado");
       setPaymentCompleted(true);
       handlePrint();
     } catch (err: any) {
@@ -3621,8 +3623,10 @@ export default function BarPage() {
                   await handlePayCash();
                 } else if (paymentMethod === "transfer") {
                   await handlePayTransfer();
+                } else if (paymentMethod === "terminal_mercadopago") {
+                  await handlePayTerminal();
                 }
-                // handlePayCash/Transfer ya llaman setPaymentCompleted(true)
+                // handlePayCash/Transfer/Terminal ya llaman setPaymentCompleted(true)
                 // y después mostramos la pantalla done
                 setPaymentStep("done");
               }} 

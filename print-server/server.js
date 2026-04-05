@@ -123,7 +123,8 @@ app.post('/print', async (req, res) => {
       tip, 
       total, 
       tableNumber,
-      isDelivery 
+      isDelivery,
+      paymentMethod 
     } = req.body;
 
     let content = "";
@@ -247,6 +248,31 @@ app.post('/print', async (req, res) => {
     content += " ".repeat(Math.max(1, 24 - 6 - totalStr.length)) + totalStr + "\n";
     content += commands.textSizeNormal;
     content += commands.boldOff;
+    content += commands.feedLine;
+    content += commands.feedLine;
+    
+    // Información de pago
+    content += "────────────────────────────────────────────────\n";
+    content += commands.feedLine;
+    content += commands.bold;
+    content += "PAGADO\n";
+    content += commands.boldOff;
+    content += commands.feedLine;
+    
+    // Método de pago
+    if (paymentMethod) {
+      const methodLabel = paymentMethod === 'cash' ? 'Efectivo' : 
+                         paymentMethod === 'card' ? 'Tarjeta' : 
+                         paymentMethod === 'transfer' ? 'Transferencia' : paymentMethod;
+      content += `Metodo: ${methodLabel}\n`;
+      content += commands.feedLine;
+    }
+    
+    // Propina si hay
+    if (tip > 0) {
+      content += `Propina: $${tip}\n`;
+      content += commands.feedLine;
+    }
     
     // Footer
     content += commands.feedLine;
