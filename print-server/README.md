@@ -30,6 +30,51 @@ npm start
 
 El servidor correrá en `http://localhost:3001`
 
+## 🌐 Exponer el servidor a internet (para Vercel)
+
+Para que Vercel pueda conectarse desde la nube, necesitas exponer tu servidor local usando **ngrok**:
+
+### 1. Instalar ngrok
+
+**Opción A - Con Homebrew (recomendado):**
+```bash
+brew install ngrok/ngrok/ngrok
+```
+
+**Opción B - Descarga manual:**
+- Ve a https://ngrok.com/download
+- Descarga e instala ngrok
+
+### 2. Crear cuenta en ngrok (gratis)
+
+- Regístrate en https://dashboard.ngrok.com/signup
+- Copia tu authtoken
+- Configúralo:
+```bash
+ngrok config add-authtoken TU_TOKEN_AQUI
+```
+
+### 3. Iniciar ngrok
+
+En una **segunda terminal** (mientras el servidor corre):
+```bash
+ngrok http 3001
+```
+
+Verás algo como:
+```
+Forwarding  https://abc123.ngrok.io -> http://localhost:3001
+```
+
+### 4. Configurar la URL en Vercel
+
+En tu proyecto de Vercel, agrega la variable de entorno:
+```
+NEXT_PUBLIC_PRINT_SERVER_URL=https://abc123.ngrok.io
+```
+
+⚠️ **Importante:** La URL de ngrok cambia cada vez que lo reinicias (en plan gratuito). Para URL fija, considera el plan de pago de ngrok.
+
 ## 🔧 Configuración
 
 ### Cambiar IP de la impresora
