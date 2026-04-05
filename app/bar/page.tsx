@@ -1845,206 +1845,76 @@ export default function BarPage() {
       const sentItems = cart.filter(item => item.sentToKitchen);
       if (sentItems.length === 0) return;
 
-      // Agrupar items por curso, luego por asiento, luego por producto
-      type TicketItem = { name: string; qty: number; price: number };
-      const courseGroups = new Map<number, Map<string, Map<string, TicketItem>>>();
+      // Agrupar items solo por asiento, luego por producto
+      type TicketItem = { name: string; qty: number; price: number; total: number };
+      const seatGroups = new Map<string, Map<string, TicketItem>>();
       for (const item of sentItems) {
-        const course = item.course || 1;
         const seat = item.seat || "C";
-        if (!courseGroups.has(course)) courseGroups.set(course, new Map());
-        const seatMap = courseGroups.get(course)!;
-        if (!seatMap.has(seat)) seatMap.set(seat, new Map());
-        const group = seatMap.get(seat)!;
+        if (!seatGroups.has(seat)) seatGroups.set(seat, new Map());
+        const group = seatGroups.get(seat)!;
         const key = `${item.productId}-${item.unitPrice}`;
         const existing = group.get(key);
         if (existing) {
           existing.qty += item.quantity;
+          existing.total = existing.qty * existing.price;
         } else {
-          group.set(key, { name: item.productName, qty: item.quantity, price: item.unitPrice });
+          const lineTotal = item.quantity * item.unitPrice;
+          group.set(key, { 
+            name: item.productName, 
+            qty: item.quantity, 
+            price: item.unitPrice,
+            total: lineTotal
+          });
         }
       }
-      const courseKeys = Array.from(courseGroups.keys()).sort((a, b) => a - b);
-      const hasMultipleCourses = courseKeys.length > 1;
 
-      const allItems: TicketItem[] = [];
-      courseGroups.forEach(seatMap => seatMap.forEach(g => g.forEach(v => allItems.push(v))));
-      const subtotal = allItems.reduce((sum, i) => sum + (i.qty * i.price), 0);
+      const subtotal = Array.from(seatGroups.values())
+        .flatMap(g => Array.from(g.values()))
+        .reduce((sum, i) => sum + i.total, 0);
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
         : (cartTotal * tipPercentage / 100);
       const total = subtotal + tipAmount;
 
-      // 58mm = ~164pt. Usamos un ancho de 48mm útil con márgenes
-      const pageW = 58;
-      const margin = 3;
-      const contentW = pageW - margin * 2;
-      const totalItemLines = allItems.length + courseKeys.length * 2;
-      const estimatedH = 120 + totalItemLines * 18 + 80;
-      
-      const doc = new jsPDF({
-        unit: "mm",
-        format: [pageW, estimatedH],
+      // Preparar datos para la impresora
+      const seatKeys = Array.from(seatGroups.keys()).sort((a, b) => {
+        if (a === "C") return 1;
+        if (b === "C") return -1;
+        return a.localeCompare(b, undefined, { numeric: true });
       });
 
-      let y = 2;
-
-      // Logo — grande, cropear laterales para llenar el ancho
-      try {
-        const logoImg = new Image();
-        logoImg.crossOrigin = "anonymous";
-        await new Promise<void>((resolve, reject) => {
-          logoImg.onload = () => resolve();
-          logoImg.onerror = () => reject();
-          logoImg.src = "/logo.png";
-        });
-        const natW = logoImg.naturalWidth;
-        const natH = logoImg.naturalHeight;
-        // Cropear 5% de cada lado para hacer zoom al centro
-        const cropPct = 0.05;
-        const cropX = natW * cropPct;
-        const cropW = natW * (1 - cropPct * 2);
-        const cropH = natH;
-        // Canvas para cropear
-        const canvas = document.createElement("canvas");
-        canvas.width = cropW;
-        canvas.height = cropH;
-        const ctx = canvas.getContext("2d")!;
-        ctx.drawImage(logoImg, cropX, 0, cropW, cropH, 0, 0, cropW, cropH);
-        const croppedDataUrl = canvas.toDataURL("image/png");
-        
-        const logoW = (pageW - margin * 2) / 2;
-        const logoH = (cropH / cropW) * logoW;
-        const logoX = (pageW - logoW) / 2; // Centrar el logo
-        doc.addImage(croppedDataUrl, "PNG", logoX, y, logoW, logoH);
-        y += logoH + 3;
-      } catch {
-        doc.setFontSize(16);
-        doc.setFont("helvetica", "bold");
-        doc.text("BRUMA", pageW / 2, y + 6, { align: "center" });
-        y += 11;
+      const itemsBySeat: Record<string, Array<{ name: string; qty: number; total: number }>> = {};
+      for (const seatKey of seatKeys) {
+        itemsBySeat[seatKey] = Array.from(seatGroups.get(seatKey)!.values()).map(item => ({
+          name: item.name,
+          qty: item.qty,
+          total: Math.round(item.total)
+        }));
       }
 
-      // Dirección
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      const addr1 = "Av. Panamericana Casa B14";
-      const addr2 = "Col. Pedregal de Carrasco, CDMX";
-      doc.text(addr1, pageW / 2, y, { align: "center" });
-      y += 3;
-      doc.text(addr2, pageW / 2, y, { align: "center" });
-      y += 7;
+      // Enviar a impresora ESC/POS
+      const printData = {
+        customerName: customerName || "",
+        orderNumber: sentItems[0]?.orderId?.slice(0, 8) || "N/A",
+        items: itemsBySeat,
+        subtotal: Math.round(subtotal),
+        tip: Math.round(tipAmount),
+        total: Math.round(total),
+        tableNumber: selectedTable?.number || "",
+        isDelivery: !selectedTable
+      };
 
-      // Fecha
-      doc.setFontSize(6);
-      const now = new Date();
-      const dateStr = `${now.toLocaleDateString("es-MX")} ${now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}`;
-      doc.text(dateStr, pageW / 2, y, { align: "center" });
-      y += 7;
+      const response = await fetch("/api/print", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(printData)
+      });
 
-      // Mesa / Para llevar + # Orden en la misma línea
-      const label = selectedTable ? `Mesa ${selectedTable.number}` : "Para Llevar";
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "bold");
-      doc.text(label, margin, y);
-      
-      // Número de orden al lado derecho
-      const orderNumText = `#${sentItems[0]?.orderId?.slice(0, 8) || 'N/A'}`;
-      doc.text(orderNumText, pageW - margin, y, { align: "right" });
-      y += 8;
-
-      // Línea separadora
-      doc.setLineWidth(0.3);
-      doc.setDrawColor(0);
-      doc.line(margin, y, pageW - margin, y);
-      y += 5;
-
-      // Items agrupados por curso, luego por asiento
-      for (const courseNum of courseKeys) {
-        const seatMap = courseGroups.get(courseNum)!;
-        const seatKeys = Array.from(seatMap.keys()).sort((a, b) => {
-          if (a === "C") return 1;
-          if (b === "C") return -1;
-          return a.localeCompare(b, undefined, { numeric: true });
-        });
-
-        // Header de tiempo (solo si hay más de 1 curso)
-        if (hasMultipleCourses) {
-          doc.setFontSize(7);
-          doc.setFont("helvetica", "bold");
-          doc.text(`— Tiempo ${courseNum} —`, pageW / 2, y, { align: "center" });
-          y += 3.5;
-        }
-
-        for (const seatKey of seatKeys) {
-          const seatItems = Array.from(seatMap.get(seatKey)!.values());
-          
-          // Header de asiento (solo si hay más de 1 asiento)
-          if (seatKeys.length > 1 || seatKey !== "C") {
-            doc.setFontSize(7);
-            doc.setFont("helvetica", "bold");
-            const seatLabel = seatKey === "C" ? "— Centro —" : `— ${seatKey} —`;
-            doc.text(seatLabel, pageW / 2, y, { align: "center" });
-            y += 3.5;
-          }
-          
-          doc.setFontSize(8);
-          for (const item of seatItems) {
-            const lineTotal = item.qty * item.price;
-            const itemName = item.name.length > 22 ? item.name.substring(0, 22) + '...' : item.name;
-            const qtyName = `${item.qty}x ${itemName}`;
-            const priceStr = `$${lineTotal.toFixed(0)}`;
-
-            doc.setFont("helvetica", "normal");
-            const maxNameW = contentW - 14;
-            const lines = doc.splitTextToSize(qtyName, maxNameW);
-            for (let i = 0; i < lines.length; i++) {
-              doc.text(lines[i], margin, y);
-              if (i === 0) {
-                doc.text(priceStr, pageW - margin, y, { align: "right" });
-              }
-              y += 3.5;
-            }
-            y += 4;
-          }
-          y += 3;
-        }
+      if (!response.ok) {
+        throw new Error("Error al imprimir");
       }
 
-      // Espacio antes del resumen
-      y += 60;
-
-      // Línea separadora
-      doc.line(margin, y, pageW - margin, y);
-      y += 4;
-
-      // Subtotal
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.text("Subtotal:", margin, y);
-      doc.text(`$${subtotal.toFixed(0)}`, pageW - margin, y, { align: "right" });
-      y += 3.5;
-
-      // Propina (si hay)
-      if (tipAmount > 0) {
-        doc.text("Propina:", margin, y);
-        doc.text(`$${tipAmount.toFixed(0)}`, pageW - margin, y, { align: "right" });
-        y += 3.5;
-      }
-
-      // Total
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.text("TOTAL:", margin, y);
-      doc.text(`$${total.toFixed(0)}`, pageW - margin, y, { align: "right" });
-      y += 5;
-
-      // Agradecimiento
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "normal");
-      doc.text("Gracias por su preferencia", pageW / 2, y, { align: "center" });
-
-      // Descargar
-      doc.save(`ticket-${now.getTime()}.pdf`);
+      toast.success("Ticket enviado a impresora");
     } catch (err) {
       console.error("Error generando ticket:", err);
       toast.error("Error generando ticket");
