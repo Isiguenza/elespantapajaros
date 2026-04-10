@@ -34,8 +34,12 @@ export default function BarPage() {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [showTableSelection, setShowTableSelection] = useState(true);
   const [deliveryOrders, setDeliveryOrders] = useState<Order[]>([]);
+  const [platformDeliveryOrders, setPlatformDeliveryOrders] = useState<Order[]>([]); // Uber/Rappi
   const [showCustomerNameDialog, setShowCustomerNameDialog] = useState(false);
   const [customerName, setCustomerName] = useState("");
+  const [isPlatformDelivery, setIsPlatformDelivery] = useState(false); // Flag para saber si es delivery de plataforma
+  const [deliveryPlatform, setDeliveryPlatform] = useState<"Uber" | "Rappi" | "Didi" | "">(""); // Plataforma seleccionada
+  const [platformOrderDigits, setPlatformOrderDigits] = useState(""); // Últimos 4 dígitos de la orden
   const [tablesWithReadyItems, setTablesWithReadyItems] = useState<Set<string>>(new Set());
   
   const [products, setProducts] = useState<Product[]>([]);
@@ -208,6 +212,15 @@ export default function BarPage() {
       fetchDeliveryOrders();
     }
   }, [showTableSelection]);
+
+  // Mostrar modal de nombre de cliente automáticamente para Para Llevar y Delivery
+  useEffect(() => {
+    // Si no estamos en selección de mesas, no hay mesa seleccionada, y no hay nombre de cliente
+    // entonces mostrar el modal automáticamente
+    if (!showTableSelection && !selectedTable && !customerName.trim()) {
+      setShowCustomerNameDialog(true);
+    }
+  }, [showTableSelection, selectedTable, customerName]);
 
   // Detectar cuando la app vuelve de segundo plano (ej: después de compartir PDF)
   useEffect(() => {
@@ -480,11 +493,25 @@ export default function BarPage() {
 
   async function fetchDeliveryOrders() {
     try {
-      // Cargar órdenes Para Llevar activas (sin mesa, status preparing, ready o pending)
+      // Cargar órdenes Para Llevar activas (sin mesa, status preparing, ready o pending, NO pagadas)
       const res = await fetch("/api/orders?status=preparing,ready,pending&noTable=true");
       if (res.ok) {
         const deliveryOnly = await res.json();
-        setDeliveryOrders(deliveryOnly);
+        // Filtrar solo las que NO están pagadas ni entregadas
+        const activeOnly = deliveryOnly.filter((order: any) => 
+          order.paymentStatus !== 'paid' && order.status !== 'delivered'
+        );
+        
+        // Separar entre Para Llevar (customerName no empieza con "Uber" o "Rappi") y Delivery de plataforma
+        const regularTakeout = activeOnly.filter((order: any) => 
+          !order.customerName?.startsWith('Uber') && !order.customerName?.startsWith('Rappi') && !order.customerName?.startsWith('Didi')
+        );
+        const platformDelivery = activeOnly.filter((order: any) => 
+          order.customerName?.startsWith('Uber') || order.customerName?.startsWith('Rappi') || order.customerName?.startsWith('Didi')
+        );
+        
+        setDeliveryOrders(regularTakeout);
+        setPlatformDeliveryOrders(platformDelivery);
       }
     } catch (error) {
       console.error('Error fetching delivery orders:', error);
@@ -604,25 +631,66 @@ export default function BarPage() {
   }
 
   function handleNewDeliveryOrder() {
-    console.log("🛍️ handleNewDeliveryOrder called");
-    const name = prompt("Nombre del cliente (opcional):");
-    setCustomerName(name || "");
     setSelectedTable(null);
+    setIsPlatformDelivery(false); // Para llevar normal, NO es plataforma
+    setCustomerName("");
     setCart([]);
     setCurrentOrderId(null);
     setActiveCourse(1);
-    setGuestCount(1); // Para llevar es 1 persona por default
+    setGuestCount(1);
     setShowTableSelection(false);
+    // El modal se mostrará automáticamente en el useEffect
+  }
+
+  function handleNewPlatformDeliveryOrder() {
+    setSelectedTable(null);
+    setIsPlatformDelivery(true);
+    setCustomerName("");
+    setCart([]);
+    setCurrentOrderId(null);
+    setActiveCourse(1);
+    setGuestCount(1);
+    setShowTableSelection(false);
+    // El modal se mostrará automáticamente en el useEffect
   }
 
   function handleConfirmCustomerName() {
-    if (!customerName.trim()) {
-      toast.error("Por favor ingresa el nombre del cliente");
-      return;
+    // Validar campos requeridos para delivery de plataforma
+    if (isPlatformDelivery) {
+      if (!deliveryPlatform) {
+        toast.error("Por favor selecciona la plataforma");
+        return;
+      }
+      if (platformOrderDigits.length !== 4) {
+        toast.error("Por favor ingresa los 4 dígitos de la orden");
+        return;
+      }
+      if (!customerName.trim()) {
+        toast.error("Por favor ingresa el nombre del cliente");
+        return;
+      }
+      
+      // Formatear nombre con plataforma y dígitos: "Uber #1234 - Juan Pérez"
+      const formattedName = `${deliveryPlatform} #${platformOrderDigits} - ${customerName.trim()}`;
+      setCustomerName(formattedName);
+    } else {
+      // Para llevar normal
+      if (!customerName.trim()) {
+        toast.error("Por favor ingresa el nombre del cliente");
+        return;
+      }
     }
     
     setShowCustomerNameDialog(false);
-    toast.success(`Orden Para Llevar - ${customerName}`);
+    setCart([]);
+    setCurrentOrderId(null);
+    setActiveCourse(1);
+    setGuestCount(1);
+    setShowTableSelection(false);
+    
+    const orderType = isPlatformDelivery ? "Delivery" : "Para Llevar";
+    const displayName = isPlatformDelivery ? `${deliveryPlatform} #${platformOrderDigits}` : customerName;
+    toast.success(`Orden ${orderType} - ${displayName}`);
   }
 
   async function handleSelectDeliveryOrder(order: Order) {
@@ -964,10 +1032,14 @@ export default function BarPage() {
     }
 
     // Sin flujo personalizado: crear item y mostrar diálogo de comentarios
+    // Usar precio de plataforma si es delivery de plataforma (Uber/Rappi/Didi)
+    const isPlatform = customerName && (customerName.startsWith('Uber') || customerName.startsWith('Rappi') || customerName.startsWith('Didi'));
+    const priceToUse = isPlatform && product.platformPrice ? parseFloat(product.platformPrice) : parseFloat(product.price);
+    
     const newItem: CartItem = {
       productId: product.id,
       productName: product.name,
-      unitPrice: parseFloat(product.price),
+      unitPrice: priceToUse,
       quantity: 1,
       notes: "",
       frostingId: undefined,
@@ -1073,8 +1145,12 @@ export default function BarPage() {
   function finishFlowAndAddToCart() {
     if (!selectedProduct || !categoryFlow) return;
 
+    // Usar precio de plataforma si es delivery de plataforma (Uber/Rappi/Didi)
+    const isPlatform = customerName && (customerName.startsWith('Uber') || customerName.startsWith('Rappi') || customerName.startsWith('Didi'));
+    const basePrice = isPlatform && selectedProduct.platformPrice ? parseFloat(selectedProduct.platformPrice) : parseFloat(selectedProduct.price);
+    
     // Calcular precio total con modificadores custom
-    let totalPrice = parseFloat(selectedProduct.price);
+    let totalPrice = basePrice;
     const customModifiersData: Record<string, any> = {};
 
     categoryFlow.steps.forEach((step) => {
@@ -1761,7 +1837,7 @@ export default function BarPage() {
       
       toast.success("Pago en efectivo registrado");
       setPaymentCompleted(true);
-      handlePrint();
+      handlePrint("cash");
     } catch (err: any) {
       toast.error(err?.message || "Error procesando pago");
     } finally {
@@ -1808,7 +1884,7 @@ export default function BarPage() {
       
       toast.success("Pago por transferencia registrado");
       setPaymentCompleted(true);
-      handlePrint();
+      handlePrint("transfer");
     } catch (err: any) {
       toast.error(err?.message || "Error procesando pago");
     } finally {
@@ -1840,7 +1916,7 @@ export default function BarPage() {
     return s;
   }
 
-  async function handlePrint() {
+  async function handlePrint(paidWithMethod?: string) {
     try {
       const sentItems = cart.filter(item => item.sentToKitchen);
       if (sentItems.length === 0) return;
@@ -1893,7 +1969,7 @@ export default function BarPage() {
       }
 
       // Enviar a impresora ESC/POS
-      const printData = {
+      const printData: any = {
         customerName: customerName || "",
         orderNumber: sentItems[0]?.orderId?.slice(0, 8) || "N/A",
         items: itemsBySeat,
@@ -1901,9 +1977,13 @@ export default function BarPage() {
         tip: Math.round(tipAmount),
         total: Math.round(total),
         tableNumber: selectedTable?.number || "",
-        isDelivery: !selectedTable,
-        paymentMethod: paymentMethod || "cash"
+        isDelivery: !selectedTable
       };
+      
+      // Solo agregar paymentMethod si se pasó (desde pago completado)
+      if (paidWithMethod) {
+        printData.paymentMethod = paidWithMethod;
+      }
 
       // Enviar al servidor local de impresión (iMac - IP reservada: 192.168.0.160)
       const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.160:3001";
@@ -2091,9 +2171,55 @@ export default function BarPage() {
       
       toast.success("Pago con tarjeta registrado");
       setPaymentCompleted(true);
-      handlePrint();
+      handlePrint("card");
     } catch (err: any) {
       toast.error(err?.message || "Error procesando pago");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  // Marcar orden de delivery de plataforma como entregada a repartidor (sin cobrar)
+  async function handleDeliverToDriver() {
+    if (!currentOrderId) return;
+    setProcessing(true);
+    try {
+      // Consolidar órdenes hermanas
+      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      if (siblingOrderIds.length > 0) {
+        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siblingOrderIds }),
+        });
+      }
+      
+      // Marcar como entregado sin pago (plataforma maneja el pago)
+      const res = await fetch(`/api/orders/${currentOrderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "delivered",
+          paymentStatus: "paid", // Marcamos como pagado porque la plataforma maneja el pago
+          paymentMethod: "platform_delivery", // Método especial para delivery de plataforma
+        }),
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Error marcando como entregado");
+      }
+      
+      toast.success("Orden entregada a repartidor");
+      
+      // Imprimir ticket
+      handlePrint();
+      
+      // Limpiar y volver a selección
+      setPaymentCompleted(true);
+      handleConfirmOrder();
+    } catch (err: any) {
+      toast.error(err?.message || "Error entregando orden");
     } finally {
       setProcessing(false);
     }
@@ -2331,6 +2457,54 @@ export default function BarPage() {
                       Orden #{order.orderNumber}
                     </div>
                     <Badge className="bg-green-950/50 text-green-200 border-green-700/50">
+                      {order.items?.length || 0} items
+                    </Badge>
+                  </div>
+                </button>
+              ))}
+
+              {/* Opción Nueva Orden Delivery (Uber/Rappi) */}
+              <button
+                className="rounded-lg overflow-hidden relative hover:scale-[1.02] transition-all bg-gradient-to-br from-purple-900/80 to-purple-950 border border-purple-800/50 shadow-md hover:border-purple-700/70 min-h-[160px]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNewPlatformDeliveryOrder();
+                }}
+              >
+                <div className="relative z-10 p-6 flex flex-col items-center justify-center h-full">
+                  <div className="text-5xl mb-3">
+                    🏍️
+                  </div>
+                  <div className="text-lg font-bold text-white mb-1">
+                    Delivery
+                  </div>
+                  <div className="text-xs text-purple-200/70 mb-3">
+                    Uber/Rappi/Didi
+                  </div>
+                  <Badge className="bg-purple-950/50 text-purple-200 border-purple-700/50">
+                    + Nuevo
+                  </Badge>
+                </div>
+              </button>
+
+              {/* Órdenes Delivery Plataforma Activas */}
+              {platformDeliveryOrders.map((order, index) => (
+                <button
+                  key={order.id}
+                  className="rounded-lg overflow-hidden relative hover:scale-[1.02] transition-all bg-gradient-to-br from-orange-900/80 to-orange-950 border border-orange-800/50 shadow-md hover:border-orange-700/70 min-h-[160px]"
+                  onClick={() => handleSelectDeliveryOrder(order)}
+                >
+                  <div className="relative z-10 p-6 flex flex-col items-center justify-center h-full">
+                    <div className="text-5xl mb-3">
+                      🏍️
+                    </div>
+                    <div className="text-lg font-bold text-white mb-1">
+                      {order.customerName || `Delivery ${index + 1}`}
+                    </div>
+                    <div className="text-xs text-orange-200/70 mb-3">
+                      Orden #{order.orderNumber}
+                    </div>
+                    <Badge className="bg-orange-950/50 text-orange-200 border-orange-700/50">
                       {order.items?.length || 0} items
                     </Badge>
                   </div>
@@ -2777,7 +2951,7 @@ export default function BarPage() {
               {submitting ? "Procesando..." : "Cobrar"}
             </Button>
             <Button
-              onClick={handlePrint}
+              onClick={() => handlePrint()}
               disabled={cart.filter(i => i.sentToKitchen).length === 0}
               variant="outline"
               className="bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700"
@@ -3486,36 +3660,69 @@ export default function BarPage() {
               );
             })()}
 
-            {/* Métodos de pago */}
-            <div className="grid grid-cols-3 gap-3">
-              <Card
-                className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "cash" ? "ring-2 ring-green-500" : "bg-neutral-900 border-neutral-800"}`}
-                onClick={() => setPaymentMethod("cash")}
-              >
-                <CardContent className="flex flex-col items-center justify-center p-4">
-                  <Money className="mb-2 size-10 text-green-600" />
-                  <p className="text-sm font-semibold text-white">Efectivo</p>
-                </CardContent>
-              </Card>
-              <Card
-                className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "terminal_mercadopago" ? "ring-2 ring-blue-500" : "bg-neutral-900 border-neutral-800"}`}
-                onClick={() => setPaymentMethod("terminal_mercadopago")}
-              >
-                <CardContent className="flex flex-col items-center justify-center p-4">
-                  <CreditCard className="mb-2 size-10 text-blue-600" />
-                  <p className="text-sm font-semibold text-white">Terminal</p>
-                </CardContent>
-              </Card>
-              <Card
-                className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "transfer" ? "ring-2 ring-purple-500" : "bg-neutral-900 border-neutral-800"}`}
-                onClick={() => setPaymentMethod("transfer")}
-              >
-                <CardContent className="flex flex-col items-center justify-center p-4">
-                  <Bank className="mb-2 size-10 text-purple-600" />
-                  <p className="text-sm font-semibold text-white">Transferencia</p>
-                </CardContent>
-              </Card>
-            </div>
+            {/* Botón especial para Delivery de plataforma (Uber/Rappi) */}
+            {customerName && (customerName.startsWith('Uber') || customerName.startsWith('Rappi') || customerName.startsWith('Didi')) ? (
+              <div className="space-y-4">
+                <div className="bg-orange-900/20 border border-orange-800/50 rounded-lg p-4">
+                  <p className="text-sm text-orange-200 mb-2">
+                    🏍️ Esta es una orden de delivery de plataforma
+                  </p>
+                  <p className="text-xs text-orange-300/70">
+                    El pago es manejado por {customerName.split(' ')[0]}. Solo marca como entregado al repartidor.
+                  </p>
+                </div>
+                <Button
+                  size="lg"
+                  className="w-full h-16 text-lg font-semibold bg-orange-600 hover:bg-orange-700"
+                  onClick={handleDeliverToDriver}
+                  disabled={processing}
+                >
+                  {processing ? (
+                    <>
+                      <Spinner className="mr-2 size-5 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    <>
+                      ✅ Entregar a Repartidor
+                    </>
+                  )}
+                </Button>
+              </div>
+            ) : (
+              // Métodos de pago normales
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <Card
+                    className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "cash" ? "ring-2 ring-green-500" : "bg-neutral-900 border-neutral-800"}`}
+                    onClick={() => setPaymentMethod("cash")}
+                  >
+                    <CardContent className="flex flex-col items-center justify-center p-4">
+                      <Money className="mb-2 size-10 text-green-600" />
+                      <p className="text-sm font-semibold text-white">Efectivo</p>
+                    </CardContent>
+                  </Card>
+                  <Card
+                    className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "terminal_mercadopago" ? "ring-2 ring-blue-500" : "bg-neutral-900 border-neutral-800"}`}
+                    onClick={() => setPaymentMethod("terminal_mercadopago")}
+                  >
+                    <CardContent className="flex flex-col items-center justify-center p-4">
+                      <CreditCard className="mb-2 size-10 text-blue-600" />
+                      <p className="text-sm font-semibold text-white">Terminal</p>
+                    </CardContent>
+                  </Card>
+                  <Card
+                    className={`cursor-pointer transition-all hover:shadow-lg ${paymentMethod === "transfer" ? "ring-2 ring-purple-500" : "bg-neutral-900 border-neutral-800"}`}
+                    onClick={() => setPaymentMethod("transfer")}
+                  >
+                    <CardContent className="flex flex-col items-center justify-center p-4">
+                      <Bank className="mb-2 size-10 text-purple-600" />
+                      <p className="text-sm font-semibold text-white">Transferencia</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
+            )}
 
             {/* Efectivo: recibido + cambio */}
             {paymentMethod === "cash" && (
@@ -4236,20 +4443,47 @@ export default function BarPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Nombre de Cliente Para Llevar */}
+      {/* Dialog Nombre de Cliente Para Llevar / Delivery */}
       <Dialog open={showCustomerNameDialog} onOpenChange={setShowCustomerNameDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Orden Para Llevar</DialogTitle>
+            <DialogTitle>{isPlatformDelivery ? "Orden Delivery (Uber/Rappi/Didi)" : "Orden Para Llevar"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {isPlatformDelivery && (
+              <>
+                <div>
+                  <Label>Plataforma *</Label>
+                  <select
+                    value={deliveryPlatform}
+                    onChange={(e) => setDeliveryPlatform(e.target.value as "Uber" | "Rappi" | "Didi" | "")}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+                  >
+                    <option value="">Selecciona plataforma</option>
+                    <option value="Uber">Uber Eats</option>
+                    <option value="Rappi">Rappi</option>
+                    <option value="Didi">Didi Food</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>Últimos 4 dígitos de la orden *</Label>
+                  <Input
+                    type="text"
+                    maxLength={4}
+                    value={platformOrderDigits}
+                    onChange={(e) => setPlatformOrderDigits(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="1234"
+                  />
+                </div>
+              </>
+            )}
             <div>
               <Label>Nombre del Cliente</Label>
               <Input
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Ej: Juan Pérez"
-                autoFocus
+                placeholder={isPlatformDelivery ? "Ej: Juan Pérez" : "Ej: Juan Pérez"}
+                autoFocus={!isPlatformDelivery}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     handleConfirmCustomerName();

@@ -182,37 +182,44 @@ app.post('/print', async (req, res) => {
     content += commands.boldOff;
     content += commands.textSizeNormal;
     content += commands.feedLine;
+    
+    // Si es delivery de plataforma (Uber/Rappi/Didi), mostrar info de plataforma
+    if (isDelivery && customerName) {
+      const platformMatch = customerName.match(/^(Uber|Rappi|Didi)\s*#(\d{4})/);
+      if (platformMatch) {
+        const platform = platformMatch[1];
+        const orderDigits = platformMatch[2];
+        content += commands.alignCenter;
+        content += commands.textSizeLarge;
+        content += commands.bold;
+        content += `${platform} #${orderDigits}\n`;
+        content += commands.boldOff;
+        content += commands.textSizeNormal;
+        content += commands.alignLeft;
+        content += commands.feedLine;
+      }
+    }
+    
     content += commands.feedLine;
     content += commands.feedLine;
     
     // Línea separadora continua (80mm)
     content += commands.alignLeft;
-    content += "────────────────────────────────────────────────\n";
+    content += "------------------------------------------------\n";
     content += commands.feedLine;
     
-    // Items agrupados por asiento
+    // Items todos juntos (más compacto, sin separar por asientos)
+    const allItems = [];
     for (const seat of Object.keys(items)) {
-      const seatItems = items[seat];
-      
-      // Header de asiento alineado a la izquierda
-      if (Object.keys(items).length > 1 || seat !== "C") {
-        content += commands.bold;
-        const seatLabel = seat === "C" ? "Centro:" : `${seat}:`;
-        content += seatLabel + "\n";
-        content += commands.boldOff;
-        content += commands.feedLine;
-      }
-      
-      // Items del asiento con más espaciado (80mm = ~48 caracteres)
-      for (const item of seatItems) {
-        const qtyName = `${item.qty}x ${item.name}`;
-        const price = `$${item.total}`;
-        const itemSpaces = Math.max(1, 48 - qtyName.length - price.length);
-        content += qtyName + " ".repeat(itemSpaces) + price + "\n";
-        content += commands.feedLine;
-      }
-      content += commands.feedLine;
-      content += commands.feedLine;
+      allItems.push(...items[seat]);
+    }
+    
+    // Imprimir todos los items juntos
+    for (const item of allItems) {
+      const qtyName = `${item.qty}x ${item.name}`;
+      const price = `$${item.total}`;
+      const itemSpaces = Math.max(1, 48 - qtyName.length - price.length);
+      content += qtyName + " ".repeat(itemSpaces) + price + "\n";
     }
     
     // Espacio antes del total
@@ -220,7 +227,7 @@ app.post('/print', async (req, res) => {
     content += commands.feedLine;
     
     // Línea separadora continua (80mm)
-    content += "────────────────────────────────────────────────\n";
+    content += "------------------------------------------------\n";
     content += commands.feedLine;
     
     // Subtotal
@@ -251,27 +258,27 @@ app.post('/print', async (req, res) => {
     content += commands.feedLine;
     content += commands.feedLine;
     
-    // Información de pago
-    content += "────────────────────────────────────────────────\n";
-    content += commands.feedLine;
-    content += commands.bold;
-    content += "PAGADO\n";
-    content += commands.boldOff;
-    content += commands.feedLine;
-    
-    // Método de pago
+    // Información de pago (solo si está pagado)
     if (paymentMethod) {
+      content += "────────────────────────────────────────────────\n";
+      content += commands.feedLine;
+      content += commands.bold;
+      content += "PAGADO\n";
+      content += commands.boldOff;
+      content += commands.feedLine;
+      
       const methodLabel = paymentMethod === 'cash' ? 'Efectivo' : 
                          paymentMethod === 'card' ? 'Tarjeta' : 
-                         paymentMethod === 'transfer' ? 'Transferencia' : paymentMethod;
+                         paymentMethod === 'transfer' ? 'Transferencia' : 
+                         paymentMethod === 'terminal_mercadopago' ? 'Terminal' : paymentMethod;
       content += `Metodo: ${methodLabel}\n`;
       content += commands.feedLine;
-    }
-    
-    // Propina si hay
-    if (tip > 0) {
-      content += `Propina: $${tip}\n`;
-      content += commands.feedLine;
+      
+      // Propina si hay
+      if (tip > 0) {
+        content += `Propina: $${tip}\n`;
+        content += commands.feedLine;
+      }
     }
     
     // Footer
@@ -298,6 +305,178 @@ app.post('/print', async (req, res) => {
   } catch (error) {
     console.error("Error printing:", error);
     res.status(500).json({ error: "Error al imprimir" });
+  }
+});
+
+// Endpoint para imprimir resumen de ventas
+app.post('/print-summary', async (req, res) => {
+  try {
+    const { 
+      date,
+      registerName,
+      totalOrders,
+      cashTotal,
+      cardTotal,
+      transferTotal,
+      totalTips,
+      grandTotal,
+      products
+    } = req.body;
+
+    let content = "";
+    
+    // Inicializar impresora
+    content += commands.init;
+    
+    // Header centrado
+    content += commands.alignCenter;
+    content += commands.feedLine;
+    content += commands.bold;
+    content += "BRUMA\n";
+    content += commands.boldOff;
+    content += "Mariscos y Cocteles\n";
+    content += commands.feedLine;
+    content += commands.feedLine;
+    
+    // Título
+    content += commands.bold;
+    content += commands.textSizeDouble;
+    content += "RESUMEN DE VENTAS\n";
+    content += commands.textSizeNormal;
+    content += commands.boldOff;
+    content += commands.feedLine;
+    
+    // Fecha y hora
+    const dateObj = new Date(date);
+    const dateStr = dateObj.toLocaleDateString('es-MX', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric' 
+    });
+    const timeStr = dateObj.toLocaleTimeString('es-MX', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+    content += `${dateStr} - ${timeStr}\n`;
+    content += `${registerName}\n`;
+    content += commands.feedLine;
+    content += commands.feedLine;
+    
+    // Línea separadora
+    content += commands.alignLeft;
+    content += "------------------------------------------------\n";
+    content += commands.feedLine;
+    
+    // Totales por método de pago
+    content += commands.bold;
+    content += "VENTAS POR METODO DE PAGO\n";
+    content += commands.boldOff;
+    content += commands.feedLine;
+    
+    if (cashTotal > 0) {
+      content += "Efectivo:";
+      const cashStr = `$${Math.round(cashTotal)}`;
+      content += " ".repeat(48 - 9 - cashStr.length) + cashStr + "\n";
+    }
+    
+    if (cardTotal > 0) {
+      content += "Tarjeta:";
+      const cardStr = `$${Math.round(cardTotal)}`;
+      content += " ".repeat(48 - 8 - cardStr.length) + cardStr + "\n";
+    }
+    
+    if (transferTotal > 0) {
+      content += "Transferencia:";
+      const transferStr = `$${Math.round(transferTotal)}`;
+      content += " ".repeat(48 - 14 - transferStr.length) + transferStr + "\n";
+    }
+    
+    content += commands.feedLine;
+    
+    // Propinas
+    if (totalTips > 0) {
+      content += "Propinas:";
+      const tipsStr = `$${Math.round(totalTips)}`;
+      content += " ".repeat(48 - 9 - tipsStr.length) + tipsStr + "\n";
+      content += commands.feedLine;
+    }
+    
+    // Línea separadora
+    content += "------------------------------------------------\n";
+    content += commands.feedLine;
+    
+    // Total general
+    content += commands.bold;
+    content += commands.textSizeDouble;
+    content += "TOTAL:";
+    const totalStr = `$${Math.round(grandTotal)}`;
+    content += " ".repeat(Math.max(1, 24 - 6 - totalStr.length)) + totalStr + "\n";
+    content += commands.textSizeNormal;
+    content += commands.boldOff;
+    content += commands.feedLine;
+    
+    content += `Ordenes: ${totalOrders}\n`;
+    content += commands.feedLine;
+    content += commands.feedLine;
+    
+    // Productos vendidos
+    if (products && products.length > 0) {
+      content += "------------------------------------------------\n";
+      content += commands.feedLine;
+      content += commands.bold;
+      content += "PRODUCTOS VENDIDOS\n";
+      content += commands.boldOff;
+      content += commands.feedLine;
+      
+      for (const product of products) {
+        const qtyName = `${product.qty}x ${product.name}`;
+        // Limitar longitud del nombre si es muy largo
+        const displayName = qtyName.length > 48 ? qtyName.slice(0, 45) + "..." : qtyName;
+        content += displayName + "\n";
+      }
+      
+      content += commands.feedLine;
+    }
+    
+    // Footer
+    content += commands.feedLine;
+    content += commands.feedLine;
+    content += commands.alignCenter;
+    content += "Gracias por su preferencia\n";
+    content += commands.feedLine;
+    content += commands.feedLine;
+    content += commands.feedLine;
+    content += commands.cut;
+    
+    // Enviar a impresora
+    const client = new net.Socket();
+    let responseSent = false;
+    
+    client.connect(PRINTER_PORT, PRINTER_IP, () => {
+      console.log('✅ Conectado a impresora para resumen');
+      client.write(content);
+      client.end();
+    });
+    
+    client.on('error', (err) => {
+      console.error('❌ Error de conexión:', err.message);
+      if (!responseSent) {
+        responseSent = true;
+        res.status(500).json({ error: 'Error de conexión con impresora' });
+      }
+    });
+    
+    client.on('close', () => {
+      console.log('✅ Resumen enviado a impresora');
+      if (!responseSent) {
+        responseSent = true;
+        res.json({ success: true });
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

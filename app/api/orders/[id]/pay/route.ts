@@ -107,7 +107,7 @@ export async function POST(
         updateData.cashSales = sql`COALESCE(${cashRegisters.cashSales}, 0) + ${newTotal}`;
       } else if (paymentMethod === "transfer") {
         updateData.transferSales = sql`COALESCE(${cashRegisters.transferSales}, 0) + ${newTotal}`;
-      } else if (paymentMethod === "terminal_mercadopago") {
+      } else if (paymentMethod === "terminal_mercadopago" || paymentMethod === "card") {
         updateData.terminalSales = sql`COALESCE(${cashRegisters.terminalSales}, 0) + ${newTotal}`;
       } else if (paymentMethod === "split") {
         // Split bills: total goes to cashSales as default (individual methods vary)

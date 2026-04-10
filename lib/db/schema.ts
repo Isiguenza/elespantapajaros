@@ -100,6 +100,7 @@ export const products = pgTable("products", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  platformPrice: decimal("platform_price", { precision: 10, scale: 2 }), // Precio para plataformas de delivery (Uber/Rappi)
   categoryId: uuid("category_id").references(() => categories.id),
   groupId: uuid("group_id").references(() => groups.id),
   imageUrl: text("image_url"),

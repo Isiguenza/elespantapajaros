@@ -29,6 +29,7 @@ export interface Product {
   name: string;
   description: string | null;
   price: string;
+  platformPrice?: string | null; // Precio para plataformas de delivery (Uber/Rappi)
   categoryId: string | null;
   groupId: string | null;
   imageUrl: string | null;

@@ -30,6 +30,7 @@ import {
   Receipt,
   ArrowUp,
   ArrowDown,
+  Printer,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -58,6 +59,20 @@ export default function CashRegisterPage() {
   const [depositModalOpen, setDepositModalOpen] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
+  
+  // Orders history modal
+  const [ordersHistoryOpen, setOrdersHistoryOpen] = useState(false);
+  const [paidOrders, setPaidOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [actualTotalSales, setActualTotalSales] = useState<number>(0);
+  
+  // Delete order modal
+  const [deleteOrderModalOpen, setDeleteOrderModalOpen] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<any>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deletingOrder, setDeletingOrder] = useState(false);
+  const [reprintingOrderId, setReprintingOrderId] = useState<string | null>(null);
+  const [printingSummary, setPrintingSummary] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -163,6 +178,197 @@ export default function CashRegisterPage() {
     loadData();
   }
 
+  async function loadPaidOrders() {
+    if (!register) return;
+    setLoadingOrders(true);
+    try {
+      // Obtener solo órdenes completadas (delivered + paid) del día actual
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startOfDay = today.toISOString();
+      
+      const res = await fetch(`/api/orders/history?registerId=${register.id}&startDate=${startOfDay}`);
+      if (res.ok) {
+        const orders = await res.json();
+        // Filtrar solo las del día actual por si acaso
+        const todayOrders = orders.filter((order: any) => {
+          const orderDate = new Date(order.createdAt);
+          orderDate.setHours(0, 0, 0, 0);
+          return orderDate.getTime() === today.getTime();
+        });
+        setPaidOrders(todayOrders);
+        
+        // Calcular el total real de las órdenes del día
+        const total = todayOrders.reduce((sum: number, order: any) => {
+          return sum + parseFloat(order.total || "0");
+        }, 0);
+        setActualTotalSales(total);
+      }
+    } catch (error) {
+      console.error("Error loading orders:", error);
+      toast.error("Error cargando órdenes");
+    } finally {
+      setLoadingOrders(false);
+    }
+  }
+
+  function handleShowOrders() {
+    setOrdersHistoryOpen(true);
+    loadPaidOrders();
+  }
+  
+  // Cargar órdenes al montar el componente para calcular el total real
+  useEffect(() => {
+    if (register) {
+      loadPaidOrders();
+    }
+  }, [register]);
+
+  function handleDeleteOrderClick(order: any) {
+    setOrderToDelete(order);
+    setDeleteReason("");
+    setDeleteOrderModalOpen(true);
+  }
+
+  async function handleConfirmDelete() {
+    if (!orderToDelete || !deleteReason.trim()) {
+      toast.error("Debes ingresar un motivo");
+      return;
+    }
+    
+    setDeletingOrder(true);
+    try {
+      const res = await fetch(`/api/orders/${orderToDelete.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: deleteReason }),
+      });
+      
+      if (!res.ok) throw new Error("Error eliminando orden");
+      
+      toast.success("Orden eliminada");
+      setDeleteOrderModalOpen(false);
+      setOrderToDelete(null);
+      setDeleteReason("");
+      
+      // Recargar órdenes y datos de caja
+      loadPaidOrders();
+      loadData();
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      toast.error("Error eliminando orden");
+    } finally {
+      setDeletingOrder(false);
+    }
+  }
+
+  async function handleReprintOrder(order: any) {
+    setReprintingOrderId(order.id);
+    try {
+      // Preparar datos para reimprimir
+      const itemsBySeat: Record<string, Array<{ name: string; qty: number; total: number }>> = {};
+      
+      // Agrupar items (simplificado, todos juntos)
+      itemsBySeat["A1"] = (order.items || []).map((item: any) => ({
+        name: item.productName,
+        qty: item.quantity,
+        total: parseFloat(item.subtotal || "0")
+      }));
+
+      const printData = {
+        customerName: order.customerName || "",
+        orderNumber: order.orderNumber?.toString() || "N/A",
+        items: itemsBySeat,
+        subtotal: parseFloat(order.subtotal || "0"),
+        tip: parseFloat(order.tip || "0"),
+        total: parseFloat(order.total || "0"),
+        tableNumber: order.tableNumber || "",
+        isDelivery: !order.tableId,
+        paymentMethod: order.paymentMethod
+      };
+
+      const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.160:3001";
+      const response = await fetch(`${printServerUrl}/print`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(printData)
+      });
+
+      if (!response.ok) throw new Error("Error al reimprimir");
+      
+      toast.success("Ticket reimpreso");
+    } catch (error) {
+      console.error("Error reprinting:", error);
+      toast.error("Error al reimprimir ticket");
+    } finally {
+      setReprintingOrderId(null);
+    }
+  }
+
+  async function handlePrintSummary() {
+    if (!register) return;
+    setPrintingSummary(true);
+    try {
+      // Calcular totales por método de pago
+      const cashTotal = paidOrders
+        .filter(o => o.paymentMethod === 'cash')
+        .reduce((sum, o) => sum + parseFloat(o.total || '0'), 0);
+      
+      const cardTotal = paidOrders
+        .filter(o => o.paymentMethod === 'card' || o.paymentMethod === 'terminal_mercadopago')
+        .reduce((sum, o) => sum + parseFloat(o.total || '0'), 0);
+      
+      const transferTotal = paidOrders
+        .filter(o => o.paymentMethod === 'transfer')
+        .reduce((sum, o) => sum + parseFloat(o.total || '0'), 0);
+      
+      const totalTips = paidOrders
+        .reduce((sum, o) => sum + parseFloat(o.tip || '0'), 0);
+      
+      // Agrupar productos vendidos
+      const productSales: Record<string, number> = {};
+      for (const order of paidOrders) {
+        for (const item of order.items || []) {
+          const productName = item.productName;
+          productSales[productName] = (productSales[productName] || 0) + item.quantity;
+        }
+      }
+      
+      // Convertir a array y ordenar por cantidad
+      const productList = Object.entries(productSales)
+        .map(([name, qty]) => ({ name, qty }))
+        .sort((a, b) => b.qty - a.qty);
+
+      const summaryData = {
+        date: new Date().toISOString(),
+        registerName: `Caja ${register.id.slice(0, 8)}`,
+        totalOrders: paidOrders.length,
+        cashTotal,
+        cardTotal,
+        transferTotal,
+        totalTips,
+        grandTotal: actualTotalSales,
+        products: productList
+      };
+
+      const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.160:3001";
+      const response = await fetch(`${printServerUrl}/print-summary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(summaryData)
+      });
+
+      if (!response.ok) throw new Error("Error al imprimir resumen");
+      
+      toast.success("Resumen de ventas impreso");
+    } catch (error) {
+      console.error("Error printing summary:", error);
+      toast.error("Error al imprimir resumen");
+    } finally {
+      setPrintingSummary(false);
+    }
+  }
+
   const formatCurrency = (amount: string | number | null) => {
     if (amount === null) return "$0.00";
     return new Intl.NumberFormat("es-MX", {
@@ -238,10 +444,23 @@ export default function CashRegisterPage() {
   }
 
   // Register is open
+  // Calculate actual sales from paid orders (same as summary)
+  const actualCashSales = paidOrders
+    .filter(o => o.paymentMethod === 'cash')
+    .reduce((sum, o) => sum + parseFloat(o.total || '0'), 0);
+  
+  const actualTerminalSales = paidOrders
+    .filter(o => o.paymentMethod === 'card' || o.paymentMethod === 'terminal_mercadopago')
+    .reduce((sum, o) => sum + parseFloat(o.total || '0'), 0);
+  
+  const actualTransferSales = paidOrders
+    .filter(o => o.paymentMethod === 'transfer')
+    .reduce((sum, o) => sum + parseFloat(o.total || '0'), 0);
+  
   // expectedCash = initialCash + cashSales - withdrawals + deposits
   const expectedCash =
     parseFloat(register.initialCash) + 
-    parseFloat(register.cashSales || "0") - 
+    actualCashSales - 
     parseFloat(register.withdrawals || "0") + 
     parseFloat(register.deposits || "0");
 
@@ -266,16 +485,16 @@ export default function CashRegisterPage() {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="cursor-pointer hover:bg-accent transition-colors" onClick={handleShowOrders}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Ventas Totales</CardTitle>
+            <CardTitle className="text-sm font-medium">Ventas Totales (Hoy)</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
-              {formatCurrency(register.totalSales)}
+              {formatCurrency(actualTotalSales)}
             </p>
             <p className="text-xs text-muted-foreground">
-              {register.totalOrders || 0} órdenes
+              {paidOrders.length} órdenes completadas
             </p>
           </CardContent>
         </Card>
@@ -319,6 +538,14 @@ export default function CashRegisterPage() {
           <ArrowUp className="mr-1 size-4 text-red-600" />
           Sangría (Retiro)
         </Button>
+        <Button
+          variant="outline"
+          onClick={handlePrintSummary}
+          disabled={printingSummary || paidOrders.length === 0}
+        >
+          <Printer className="mr-1 size-4" />
+          {printingSummary ? "Imprimiendo..." : "Imprimir Resumen"}
+        </Button>
         <div className="flex-1" />
         <Button variant="destructive" onClick={handleCloseModalOpen}>
           <Lock className="mr-1 size-4" />
@@ -339,10 +566,10 @@ export default function CashRegisterPage() {
             summary={{
               initialCash: parseFloat(register.initialCash),
               expectedCash,
-              totalSales: parseFloat(register.totalSales || "0"),
-              cashSales: parseFloat(register.cashSales || "0"),
-              terminalSales: parseFloat(register.terminalSales || "0"),
-              transferSales: parseFloat(register.transferSales || "0"),
+              totalSales: actualTotalSales,
+              cashSales: actualCashSales,
+              terminalSales: actualTerminalSales,
+              transferSales: actualTransferSales,
               withdrawals: parseFloat(register.withdrawals || "0"),
               deposits: parseFloat(register.deposits || "0"),
             }}
@@ -368,6 +595,142 @@ export default function CashRegisterPage() {
           - Luego pedir PIN con numpad
           - Similar al flujo de PinPad actual pero con número de empleado primero
       */}
+
+      {/* Orders History Modal */}
+      <Dialog open={ordersHistoryOpen} onOpenChange={setOrdersHistoryOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Historial de Órdenes Pagadas</DialogTitle>
+            <DialogDescription>
+              Órdenes registradas en esta caja
+            </DialogDescription>
+          </DialogHeader>
+          
+          {loadingOrders ? (
+            <div className="flex items-center justify-center py-8">
+              <Spinner className="size-8 animate-spin" />
+            </div>
+          ) : paidOrders.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No hay órdenes registradas
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {paidOrders.map((order) => (
+                <Card key={order.id} className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">#{order.orderNumber}</span>
+                        <Badge variant="outline">
+                          {order.paymentMethod === 'cash' ? 'Efectivo' : 
+                           order.paymentMethod === 'card' ? 'Tarjeta' : 
+                           order.paymentMethod === 'transfer' ? 'Transferencia' : 
+                           order.paymentMethod === 'terminal_mercadopago' ? 'Terminal' : 
+                           order.paymentMethod}
+                        </Badge>
+                      </div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        {order.tableId ? `Mesa ${order.tableNumber || ''}` : 'Para Llevar'}
+                        {order.customerName && ` - ${order.customerName}`}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {format(new Date(order.createdAt), "dd/MM/yyyy HH:mm", { locale: es })}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        <div className="font-bold text-lg">
+                          {formatCurrency(order.total)}
+                        </div>
+                        {parseFloat(order.tip || '0') > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            Propina: {formatCurrency(order.tip)}
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleReprintOrder(order)}
+                        disabled={reprintingOrderId === order.id}
+                      >
+                        <Printer className="size-4" />
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleDeleteOrderClick(order)}
+                      >
+                        Eliminar
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Order Confirmation Modal */}
+      <Dialog open={deleteOrderModalOpen} onOpenChange={setDeleteOrderModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar Orden</DialogTitle>
+            <DialogDescription>
+              Esta acción no se puede deshacer. Debes proporcionar un motivo.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {orderToDelete && (
+            <div className="space-y-4">
+              <Card className="p-4 bg-muted">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold">#{orderToDelete.orderNumber}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {orderToDelete.tableId ? `Mesa ${orderToDelete.tableNumber || ''}` : 'Para Llevar'}
+                    </div>
+                  </div>
+                  <div className="font-bold text-lg">
+                    {formatCurrency(orderToDelete.total)}
+                  </div>
+                </div>
+              </Card>
+              
+              <div className="space-y-2">
+                <Label htmlFor="deleteReason">Motivo de eliminación *</Label>
+                <Textarea
+                  id="deleteReason"
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  placeholder="Ej: Error en el pedido, cliente canceló, etc."
+                  rows={3}
+                  className="resize-none"
+                />
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOrderModalOpen(false)}
+              disabled={deletingOrder}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={deletingOrder || !deleteReason.trim()}
+            >
+              {deletingOrder ? "Eliminando..." : "Confirmar Eliminación"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

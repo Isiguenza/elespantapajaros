@@ -69,6 +69,7 @@ interface ProductForm {
   name: string;
   description: string;
   price: string;
+  platformPrice?: string;
   categoryId: string;
   groupId: string;
   imageUrl: string;
@@ -81,6 +82,7 @@ const emptyForm: ProductForm = {
   name: "",
   description: "",
   price: "",
+  platformPrice: "",
   categoryId: "",
   groupId: "",
   imageUrl: "",
@@ -154,6 +156,7 @@ export default function ProductsPage() {
       name: product.name,
       description: product.description || "",
       price: product.price,
+      platformPrice: product.platformPrice || "",
       categoryId: product.categoryId || "",
       groupId: product.groupId || "",
       imageUrl: product.imageUrl || "",
@@ -699,7 +702,7 @@ export default function ProductsPage() {
                 rows={2}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Precio Base *</Label>
                 <Input
@@ -715,6 +718,20 @@ export default function ProductsPage() {
                     El precio se define en las variantes
                   </p>
                 )}
+              </div>
+              <div className="space-y-2">
+                <Label>Precio Plataforma 🏍️</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={form.platformPrice || ""}
+                  onChange={(e) => setForm({ ...form, platformPrice: e.target.value })}
+                  placeholder="Opcional"
+                  disabled={form.hasVariants}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Para Uber/Rappi/Didi
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Categoría</Label>

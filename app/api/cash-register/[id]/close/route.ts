@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { cashRegisters, cashRegisterTransactions, auditLog } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { cashRegisters, cashRegisterTransactions, auditLog, orders } from "@/lib/db/schema";
+import { eq, and, sql, gte } from "drizzle-orm";
 
 const CASH_TOLERANCE = parseFloat(process.env.CASH_TOLERANCE || "10");
 
@@ -37,12 +37,9 @@ export async function POST(
       );
     }
 
-    // Get register with transactions
+    // Get register
     const register = await db.query.cashRegisters.findFirst({
       where: eq(cashRegisters.id, id),
-      with: {
-        transactions: true,
-      },
     });
 
     if (!register) {
@@ -56,24 +53,43 @@ export async function POST(
       );
     }
 
-    // Calculate totals from transactions
-    const cashSales = register.transactions
-      .filter(t => t.type === "sale" && t.paymentMethod === "cash")
-      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    // Get start of day for filtering orders
+    const registerOpenedAt = new Date(register.openedAt);
+    registerOpenedAt.setHours(0, 0, 0, 0);
 
-    const terminalSales = register.transactions
-      .filter(t => t.type === "sale" && t.paymentMethod === "terminal_mercadopago")
-      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    // Get all paid orders for this register from today
+    const paidOrders = await db.query.orders.findMany({
+      where: and(
+        eq(orders.cashRegisterId, id),
+        eq(orders.status, "delivered"),
+        eq(orders.paymentStatus, "paid"),
+        gte(orders.createdAt, registerOpenedAt)
+      ),
+    });
 
-    const transferSales = register.transactions
-      .filter(t => t.type === "sale" && t.paymentMethod === "transfer")
-      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    // Calculate totals from actual orders (like the summary does)
+    const cashSales = paidOrders
+      .filter(o => o.paymentMethod === "cash")
+      .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
 
-    const withdrawals = register.transactions
+    const terminalSales = paidOrders
+      .filter(o => o.paymentMethod === "terminal_mercadopago" || o.paymentMethod === "card")
+      .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
+
+    const transferSales = paidOrders
+      .filter(o => o.paymentMethod === "transfer")
+      .reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
+
+    // Get withdrawals and deposits from transactions
+    const transactions = await db.query.cashRegisterTransactions.findMany({
+      where: eq(cashRegisterTransactions.registerId, id),
+    });
+
+    const withdrawals = transactions
       .filter(t => t.type === "withdrawal")
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
-    const deposits = register.transactions
+    const deposits = transactions
       .filter(t => t.type === "deposit")
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
