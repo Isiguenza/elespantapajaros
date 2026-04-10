@@ -32,6 +32,7 @@ export const paymentMethodEnum = pgEnum("payment_method", [
   "card",
   "transfer",
   "split",
+  "platform_delivery",
 ]);
 export const cashRegisterStatusEnum = pgEnum("cash_register_status", [
   "open",

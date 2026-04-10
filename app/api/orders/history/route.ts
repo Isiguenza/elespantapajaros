@@ -41,6 +41,23 @@ export async function GET(request: NextRequest) {
 
     console.log(`[History] Found ${completedOrders.length} orders`);
     
+    // Aplicar descuento del 27% a órdenes de platform_delivery
+    const ordersWithDiscount = completedOrders.map(order => {
+      if (order.paymentMethod === 'platform_delivery') {
+        const originalTotal = parseFloat(order.total);
+        const commission = originalTotal * 0.27;
+        const totalAfterCommission = originalTotal * 0.73;
+        
+        return {
+          ...order,
+          total: totalAfterCommission.toFixed(2),
+          platformCommission: commission.toFixed(2),
+          originalTotal: originalTotal.toFixed(2),
+        };
+      }
+      return order;
+    });
+    
     // Filtrar en el backend también para asegurar solo órdenes del día actual
     if (startDate) {
       const today = new Date(startDate);
@@ -48,7 +65,7 @@ export async function GET(request: NextRequest) {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       
-      const filteredOrders = completedOrders.filter(order => {
+      const filteredOrders = ordersWithDiscount.filter(order => {
         const orderDate = new Date(order.createdAt);
         return orderDate >= today && orderDate < tomorrow;
       });
@@ -57,7 +74,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(filteredOrders);
     }
 
-    return NextResponse.json(completedOrders);
+    return NextResponse.json(ordersWithDiscount);
   } catch (error) {
     console.error("Error fetching order history:", error);
     return NextResponse.json(

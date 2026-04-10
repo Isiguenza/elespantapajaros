@@ -1056,13 +1056,17 @@ export default function BarPage() {
   }
 
   // Agregar producto con variante seleccionada
-  function handleAddVariant(variantName: string, variantPrice: string) {
+  function handleAddVariant(variantName: string, variantPrice: string, variantPlatformPrice?: string) {
     if (!selectedProductForVariant) return;
+
+    // Usar precio de plataforma si es delivery de plataforma (Uber/Rappi/Didi)
+    const isPlatform = customerName && (customerName.startsWith('Uber') || customerName.startsWith('Rappi') || customerName.startsWith('Didi'));
+    const priceToUse = isPlatform && variantPlatformPrice ? parseFloat(variantPlatformPrice) : parseFloat(variantPrice);
 
     const newItem: CartItem = {
       productId: selectedProductForVariant.id,
       productName: `${selectedProductForVariant.name} - ${variantName}`,
-      unitPrice: parseFloat(variantPrice),
+      unitPrice: priceToUse,
       quantity: 1,
       notes: "",
       frostingId: undefined,
@@ -2194,14 +2198,19 @@ export default function BarPage() {
         });
       }
       
-      // Marcar como entregado sin pago (plataforma maneja el pago)
-      const res = await fetch(`/api/orders/${currentOrderId}`, {
-        method: "PATCH",
+      // Calcular subtotal y total
+      const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+      const tipAmount = 0; // Sin propina en delivery de plataforma
+      
+      // Usar el endpoint /pay para registrar correctamente en caja e inventario
+      const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: "delivered",
-          paymentStatus: "paid", // Marcamos como pagado porque la plataforma maneja el pago
           paymentMethod: "platform_delivery", // Método especial para delivery de plataforma
+          subtotal: subtotal,
+          tip: tipAmount,
+          userId: employeeId || null,
         }),
       });
       
@@ -2214,6 +2223,9 @@ export default function BarPage() {
       
       // Imprimir ticket
       handlePrint();
+      
+      // Recargar lista de órdenes de delivery para quitar la orden completada
+      await fetchDeliveryOrders();
       
       // Limpiar y volver a selección
       setPaymentCompleted(true);
@@ -2473,7 +2485,7 @@ export default function BarPage() {
               >
                 <div className="relative z-10 p-6 flex flex-col items-center justify-center h-full">
                   <div className="text-5xl mb-3">
-                    🏍️
+                    📦
                   </div>
                   <div className="text-lg font-bold text-white mb-1">
                     Delivery
@@ -2488,28 +2500,46 @@ export default function BarPage() {
               </button>
 
               {/* Órdenes Delivery Plataforma Activas */}
-              {platformDeliveryOrders.map((order, index) => (
-                <button
-                  key={order.id}
-                  className="rounded-lg overflow-hidden relative hover:scale-[1.02] transition-all bg-gradient-to-br from-orange-900/80 to-orange-950 border border-orange-800/50 shadow-md hover:border-orange-700/70 min-h-[160px]"
-                  onClick={() => handleSelectDeliveryOrder(order)}
-                >
-                  <div className="relative z-10 p-6 flex flex-col items-center justify-center h-full">
-                    <div className="text-5xl mb-3">
-                      🏍️
+              {platformDeliveryOrders.map((order, index) => {
+                // Detectar plataforma del customerName
+                const platformMatch = order.customerName?.match(/^(Uber|Rappi|Didi)/);
+                const platform = platformMatch ? platformMatch[1] : null;
+                
+                return (
+                  <button
+                    key={order.id}
+                    className="rounded-lg overflow-hidden relative hover:scale-[1.02] transition-all bg-gradient-to-br from-orange-900/80 to-orange-950 border border-orange-800/50 shadow-md hover:border-orange-700/70 min-h-[160px]"
+                    onClick={() => handleSelectDeliveryOrder(order)}
+                  >
+                    <div className="relative z-10 p-6 flex flex-col items-center justify-center h-full">
+                      {platform ? (
+                        <img 
+                          src={`/delivery_logos/${platform.toLowerCase()}.png`}
+                          alt={platform}
+                          className="w-16 h-16 mb-3 object-contain"
+                          onError={(e) => {
+                            // Fallback a emoji si la imagen no carga
+                            e.currentTarget.style.display = 'none';
+                            e.currentTarget.nextElementSibling.style.display = 'block';
+                          }}
+                        />
+                      ) : null}
+                      <div className="text-5xl mb-3" style={{ display: platform ? 'none' : 'block' }}>
+                        🏍️
+                      </div>
+                      <div className="text-lg font-bold text-white mb-1">
+                        {order.customerName || `Delivery ${index + 1}`}
+                      </div>
+                      <div className="text-xs text-orange-200/70 mb-3">
+                        Orden #{order.orderNumber}
+                      </div>
+                      <Badge className="bg-orange-950/50 text-orange-200 border-orange-700/50">
+                        {order.items?.length || 0} items
+                      </Badge>
                     </div>
-                    <div className="text-lg font-bold text-white mb-1">
-                      {order.customerName || `Delivery ${index + 1}`}
-                    </div>
-                    <div className="text-xs text-orange-200/70 mb-3">
-                      Orden #{order.orderNumber}
-                    </div>
-                    <Badge className="bg-orange-950/50 text-orange-200 border-orange-700/50">
-                      {order.items?.length || 0} items
-                    </Badge>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
 
               {/* Mesas */}
               {tables.map((table) => {
@@ -4207,17 +4237,23 @@ export default function BarPage() {
             <p className="text-sm text-muted-foreground">
               Selecciona una opción:
             </p>
-            {selectedProductForVariant?.variants && JSON.parse(selectedProductForVariant.variants).map((variant: any, index: number) => (
-              <Button
-                key={index}
-                variant="outline"
-                className="w-full justify-between h-auto py-4"
-                onClick={() => handleAddVariant(variant.name, variant.price)}
-              >
-                <span className="font-semibold">{variant.name}</span>
-                <span className="text-lg">{formatCurrency(parseFloat(variant.price))}</span>
-              </Button>
-            ))}
+            {selectedProductForVariant?.variants && JSON.parse(selectedProductForVariant.variants).map((variant: any, index: number) => {
+              // Detectar si es delivery de plataforma
+              const isPlatform = customerName && (customerName.startsWith('Uber') || customerName.startsWith('Rappi') || customerName.startsWith('Didi'));
+              const priceToShow = isPlatform && variant.platformPrice ? parseFloat(variant.platformPrice) : parseFloat(variant.price);
+              
+              return (
+                <Button
+                  key={index}
+                  variant="outline"
+                  className="w-full justify-between h-auto py-4"
+                  onClick={() => handleAddVariant(variant.name, variant.price, variant.platformPrice)}
+                >
+                  <span className="font-semibold">{variant.name}</span>
+                  <span className="text-lg">{formatCurrency(priceToShow)}</span>
+                </Button>
+              );
+            })}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowVariantDialog(false)}>

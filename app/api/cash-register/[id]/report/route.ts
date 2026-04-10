@@ -35,6 +35,11 @@ export async function GET(
     const transferSales = register.transactions
       .filter(t => t.type === "sale" && t.paymentMethod === "transfer")
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    
+    // Platform delivery sales (con descuento del 27%)
+    const platformDeliverySales = register.transactions
+      .filter(t => t.type === "sale" && t.paymentMethod === "platform_delivery")
+      .reduce((sum, t) => sum + (parseFloat(t.amount) * 0.73), 0);
 
     const withdrawals = register.transactions
       .filter(t => t.type === "withdrawal")
@@ -48,7 +53,7 @@ export async function GET(
       .filter(t => t.type === "refund")
       .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
-    const totalSales = cashSales + terminalSales + transferSales;
+    const totalSales = cashSales + terminalSales + transferSales + platformDeliverySales;
     const expectedCash = parseFloat(register.initialCash) + cashSales - withdrawals + deposits - refunds;
 
     const report = {
@@ -70,6 +75,7 @@ export async function GET(
         cashSales,
         terminalSales,
         transferSales,
+        platformDeliverySales,
         
         withdrawals,
         deposits,
@@ -80,16 +86,28 @@ export async function GET(
         vouchersTotal: register.vouchersTotal ? parseFloat(register.vouchersTotal) : 0,
         receiptsTotal: register.receiptsTotal ? parseFloat(register.receiptsTotal) : 0,
       },
-      transactions: register.transactions.map(t => ({
-        id: t.id,
-        type: t.type,
-        amount: parseFloat(t.amount),
-        paymentMethod: t.paymentMethod,
-        description: t.description,
-        createdAt: t.createdAt,
-        userId: t.userId,
-        orderId: t.orderId,
-      })),
+      transactions: register.transactions.map(t => {
+        // Aplicar descuento del 27% a transacciones de platform_delivery
+        const isPlatformDelivery = t.paymentMethod === 'platform_delivery';
+        const originalAmount = parseFloat(t.amount);
+        const commission = isPlatformDelivery ? originalAmount * 0.27 : 0;
+        const amountAfterCommission = isPlatformDelivery ? originalAmount * 0.73 : originalAmount;
+        
+        return {
+          id: t.id,
+          type: t.type,
+          amount: amountAfterCommission,
+          originalAmount: isPlatformDelivery ? originalAmount : undefined,
+          platformCommission: isPlatformDelivery ? commission : undefined,
+          paymentMethod: t.paymentMethod,
+          description: isPlatformDelivery 
+            ? `${t.description} (Comisión 27%: -$${commission.toFixed(2)})`
+            : t.description,
+          createdAt: t.createdAt,
+          userId: t.userId,
+          orderId: t.orderId,
+        };
+      }),
       notes: {
         opening: register.notes,
         closure: register.closureNotes,

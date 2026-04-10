@@ -22,6 +22,7 @@ export interface Table {
 export interface ProductVariant {
   name: string;
   price: string;
+  platformPrice?: string; // Precio para plataformas de delivery (Uber/Rappi)
 }
 
 export interface Product {
@@ -140,7 +141,7 @@ export interface Order {
   status: "pending" | "preparing" | "ready" | "delivered" | "cancelled";
   total: string;
   paymentStatus: "pending" | "paid" | "failed" | "refunded";
-  paymentMethod: "cash" | "terminal_mercadopago" | "card" | "transfer" | null;
+  paymentMethod: "cash" | "terminal_mercadopago" | "card" | "transfer" | "platform_delivery" | null;
   mercadopagoPaymentId: string | null;
   mercadopagoPaymentIntentId: string | null;
   userId: string | null;

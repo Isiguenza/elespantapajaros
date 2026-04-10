@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
         name: true,
         description: true,
         price: true,
+        platformPrice: true,
         categoryId: true,
         groupId: true,
         imageUrl: includeImages,
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, price, categoryId, imageUrl, hasVariants, variants, active } = body;
+    const { name, description, price, platformPrice, categoryId, imageUrl, hasVariants, variants, active } = body;
 
     if (!name) {
       return NextResponse.json(
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
         name,
         description: description || null,
         price: price || "0",
+        platformPrice: platformPrice || null,
         categoryId: categoryId || null,
         imageUrl: imageUrl || null,
         hasVariants: hasVariants || false,

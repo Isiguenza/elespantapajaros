@@ -63,6 +63,7 @@ interface Extra {
 interface ProductVariant {
   name: string;
   price: string;
+  platformPrice?: string;
 }
 
 interface ProductForm {
@@ -98,6 +99,7 @@ export default function ProductsPage() {
   const [extras, setExtras] = useState<Extra[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [selectedCategoryFilters, setSelectedCategoryFilters] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [extraDialogOpen, setExtraDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -439,10 +441,17 @@ export default function ProductsPage() {
       currency: "MXN",
     }).format(parseFloat(amount));
 
-  const filtered = products.filter(
-    (p) =>
-      !search || p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = products.filter((p) => {
+    // Filtro de búsqueda
+    const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
+    
+    // Filtro de categorías (si hay categorías seleccionadas, solo mostrar esas)
+    const matchesCategory = selectedCategoryFilters.size === 0 || 
+      (p.categoryId && selectedCategoryFilters.has(p.categoryId)) ||
+      (!p.categoryId && selectedCategoryFilters.has('no-category'));
+    
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="space-y-6">
@@ -460,6 +469,66 @@ export default function ProductsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Filtro de categorías */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Filtrar por categorías</Label>
+            <div className="flex flex-wrap gap-2">
+              {categories.map((category) => {
+                const isSelected = selectedCategoryFilters.has(category.id);
+                return (
+                  <Badge
+                    key={category.id}
+                    variant={isSelected ? "default" : "outline"}
+                    className="cursor-pointer hover:bg-primary/80"
+                    onClick={() => {
+                      const newFilters = new Set(selectedCategoryFilters);
+                      if (isSelected) {
+                        newFilters.delete(category.id);
+                      } else {
+                        newFilters.add(category.id);
+                      }
+                      setSelectedCategoryFilters(newFilters);
+                    }}
+                  >
+                    {category.name}
+                  </Badge>
+                );
+              })}
+              {/* Opción para productos sin categoría */}
+              <Badge
+                variant={selectedCategoryFilters.has('no-category') ? "default" : "outline"}
+                className="cursor-pointer hover:bg-primary/80"
+                onClick={() => {
+                  const newFilters = new Set(selectedCategoryFilters);
+                  if (selectedCategoryFilters.has('no-category')) {
+                    newFilters.delete('no-category');
+                  } else {
+                    newFilters.add('no-category');
+                  }
+                  setSelectedCategoryFilters(newFilters);
+                }}
+              >
+                Sin categoría
+              </Badge>
+              {/* Botón para limpiar filtros */}
+              {selectedCategoryFilters.size > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedCategoryFilters(new Set())}
+                  className="h-6 px-2 text-xs"
+                >
+                  <X className="size-3 mr-1" />
+                  Limpiar
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="relative">
         <MagnifyingGlass className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -545,59 +614,87 @@ export default function ProductsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedProducts.has(product.id)}
-                        onCheckedChange={() => toggleProductSelection(product.id)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{product.name}</p>
-                        {product.description && (
-                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {product.description}
-                          </p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {product.category ? (
-                        <Badge variant="secondary">{product.category.name}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(product.price)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={product.active ? "default" : "secondary"}>
-                        {product.active ? "Activo" : "Inactivo"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEditDialog(product)}
-                        >
-                          <PencilSimple className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(product.id)}
-                        >
-                          <Trash className="size-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                (() => {
+                  // Agrupar productos por categoría
+                  const productsByCategory = filtered.reduce((acc, product) => {
+                    const categoryName = product.category?.name || 'Sin categoría';
+                    if (!acc[categoryName]) {
+                      acc[categoryName] = [];
+                    }
+                    acc[categoryName].push(product);
+                    return acc;
+                  }, {} as Record<string, typeof filtered>);
+
+                  // Ordenar categorías alfabéticamente, "Sin categoría" al final
+                  const sortedCategories = Object.keys(productsByCategory).sort((a, b) => {
+                    if (a === 'Sin categoría') return 1;
+                    if (b === 'Sin categoría') return -1;
+                    return a.localeCompare(b);
+                  });
+
+                  return sortedCategories.map((categoryName) => [
+                    // Fila de encabezado de categoría
+                    <TableRow key={`category-${categoryName}`} className="bg-muted/50">
+                      <TableCell colSpan={6} className="font-semibold text-sm py-2">
+                        {categoryName} ({productsByCategory[categoryName].length})
+                      </TableCell>
+                    </TableRow>,
+                    // Productos de esta categoría
+                    ...productsByCategory[categoryName].map((product) => (
+                      <TableRow key={product.id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedProducts.has(product.id)}
+                            onCheckedChange={() => toggleProductSelection(product.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{product.name}</p>
+                            {product.description && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                {product.description}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {product.category ? (
+                            <Badge variant="secondary">{product.category.name}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(product.price)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={product.active ? "default" : "secondary"}>
+                            {product.active ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditDialog(product)}
+                            >
+                              <PencilSimple className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteId(product.id)}
+                            >
+                              <Trash className="size-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ]);
+                })()
               )}
             </TableBody>
           </Table>
@@ -794,6 +891,19 @@ export default function ProductsPage() {
                           setForm({ ...form, variants: newVariants });
                         }}
                         className="w-32"
+                      />
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="Precio Plataforma"
+                        value={variant.platformPrice || ""}
+                        onChange={(e) => {
+                          const newVariants = [...form.variants];
+                          newVariants[index].platformPrice = e.target.value;
+                          setForm({ ...form, variants: newVariants });
+                        }}
+                        className="w-32"
+                        title="Precio para Uber/Rappi/Didi"
                       />
                       <Button
                         variant="outline"

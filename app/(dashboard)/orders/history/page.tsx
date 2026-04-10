@@ -21,6 +21,7 @@ const methodLabels: Record<string, string> = {
   transfer: "Transferencia",
   terminal_mercadopago: "Terminal",
   split: "Dividido",
+  platform_delivery: "Plataforma",
 };
 
 const splitMethodLabels: Record<string, string> = {
@@ -174,6 +175,9 @@ export default function OrderHistoryPage() {
                   const total = parseFloat(order.total || "0");
                   const tip = parseFloat((order as any).tip || "0");
                   const tableNum = (order as any).table?.number;
+                  const isPlatformDelivery = order.paymentMethod === 'platform_delivery';
+                  const platformCommission = (order as any).platformCommission ? parseFloat((order as any).platformCommission) : 0;
+                  const originalTotal = (order as any).originalTotal ? parseFloat((order as any).originalTotal) : 0;
 
                   return (
                     <button
@@ -211,13 +215,25 @@ export default function OrderHistoryPage() {
                                   +{formatCurrency(tip)} propina
                                 </span>
                               )}
+                              {isPlatformDelivery && platformCommission > 0 && (
+                                <span className="text-xs text-orange-500">
+                                  -{formatCurrency(platformCommission)} comisión
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-lg font-bold">
-                            {formatCurrency(total)}
-                          </span>
+                          <div className="text-right">
+                            <span className="text-lg font-bold">
+                              {formatCurrency(total)}
+                            </span>
+                            {isPlatformDelivery && originalTotal > 0 && (
+                              <div className="text-xs text-muted-foreground line-through">
+                                {formatCurrency(originalTotal)}
+                              </div>
+                            )}
+                          </div>
                           <Eye className="size-4 text-muted-foreground" />
                         </div>
                       </div>
@@ -300,6 +316,9 @@ export default function OrderHistoryPage() {
                   const subtotal = parseFloat((selectedOrder as any).subtotal || "0");
                   const tip = parseFloat((selectedOrder as any).tip || "0");
                   const total = parseFloat(selectedOrder.total || "0");
+                  const isPlatformDelivery = selectedOrder.paymentMethod === 'platform_delivery';
+                  const platformCommission = (selectedOrder as any).platformCommission ? parseFloat((selectedOrder as any).platformCommission) : 0;
+                  const originalTotal = (selectedOrder as any).originalTotal ? parseFloat((selectedOrder as any).originalTotal) : 0;
                   
                   let splitData: any = null;
                   try {
@@ -370,8 +389,22 @@ export default function OrderHistoryPage() {
                           </div>
                         </>
                       )}
+                      
+                      {isPlatformDelivery && platformCommission > 0 && (
+                        <>
+                          <div className="flex justify-between border-t pt-2 text-sm">
+                            <span>Total Orden</span>
+                            <span>{formatCurrency(originalTotal)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm text-orange-500">
+                            <span>Comisión Plataforma (27%)</span>
+                            <span>-{formatCurrency(platformCommission)}</span>
+                          </div>
+                        </>
+                      )}
+                      
                       <div className="flex justify-between border-t pt-2 text-lg font-bold">
-                        <span>Total</span>
+                        <span>{isPlatformDelivery && platformCommission > 0 ? 'Total Recibido' : 'Total'}</span>
                         <span>{formatCurrency(total)}</span>
                       </div>
                     </>

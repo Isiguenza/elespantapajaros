@@ -32,7 +32,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, description, price, categoryId, imageUrl, hasVariants, variants, active } = body;
+    const { name, description, price, platformPrice, categoryId, imageUrl, hasVariants, variants, active } = body;
 
     const [product] = await db
       .update(products)
@@ -40,6 +40,7 @@ export async function PUT(
         name,
         description: description || null,
         price: price || "0",
+        platformPrice: platformPrice || null,
         categoryId: categoryId || null,
         imageUrl: imageUrl || null,
         hasVariants: hasVariants ?? false,

@@ -112,6 +112,9 @@ export async function POST(
       } else if (paymentMethod === "split") {
         // Split bills: total goes to cashSales as default (individual methods vary)
         updateData.cashSales = sql`COALESCE(${cashRegisters.cashSales}, 0) + ${newTotal}`;
+      } else if (paymentMethod === "platform_delivery") {
+        // Platform delivery: registrar en transferSales (ya que el dinero viene de la plataforma)
+        updateData.transferSales = sql`COALESCE(${cashRegisters.transferSales}, 0) + ${newTotal}`;
       }
       await db
         .update(cashRegisters)
