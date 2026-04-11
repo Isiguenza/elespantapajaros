@@ -2168,9 +2168,9 @@ export default function BarPage() {
         }),
       });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        console.error("❌ Error en pago:", errData);
-        throw new Error(errData.error || "Error en pago");
+        const errData = await res.json().catch(() => ({ error: "Error desconocido" }));
+        console.error("Error en pago con terminal:", errData);
+        throw new Error(errData.error || "Error procesando pago con terminal");
       }
       
       toast.success("Pago con tarjeta registrado");
