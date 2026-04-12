@@ -180,6 +180,117 @@ export default function BarPage() {
     restoreSession();
     // No cargar mesas ni delivery orders hasta que se muestre la pantalla de selección
     // Esto acelera la carga inicial
+    
+    // Restaurar estado del carrito desde localStorage al cargar la página
+    try {
+      const savedCart = localStorage.getItem('barCart');
+      const savedTable = localStorage.getItem('barSelectedTable');
+      const savedCustomerName = localStorage.getItem('barCustomerName');
+      const savedOrderId = localStorage.getItem('barCurrentOrderId');
+      const savedGuestCount = localStorage.getItem('barGuestCount');
+      const savedActiveCourse = localStorage.getItem('barActiveCourse');
+      const savedActiveSeat = localStorage.getItem('barActiveSeat');
+      
+      let hasActiveOrder = false;
+      
+      if (savedCart) {
+        const parsedCart = JSON.parse(savedCart);
+        if (parsedCart.length > 0) {
+          setCart(parsedCart);
+          hasActiveOrder = true;
+          console.log('🔄 Carrito restaurado desde localStorage:', parsedCart.length, 'items');
+        }
+      }
+      
+      if (savedTable) {
+        const parsedTable = JSON.parse(savedTable);
+        setSelectedTable(parsedTable);
+        hasActiveOrder = true;
+        console.log('🔄 Mesa restaurada:', parsedTable.number);
+      }
+      
+      if (savedCustomerName) {
+        setCustomerName(savedCustomerName);
+        hasActiveOrder = true;
+        console.log('🔄 Cliente restaurado:', savedCustomerName);
+        
+        // Si es delivery, cargar las órdenes de delivery para tener los datos completos
+        fetchDeliveryOrders();
+      }
+      
+      // Si hay orden activa (carrito, mesa o cliente), ocultar selección de mesas
+      if (hasActiveOrder) {
+        setShowTableSelection(false);
+        console.log('✅ Orden activa restaurada - ocultando selección de mesas');
+        console.log('📊 Estado restaurado:', {
+          cartItems: savedCart ? JSON.parse(savedCart).length : 0,
+          hasTable: !!savedTable,
+          hasCustomer: !!savedCustomerName,
+          orderId: savedOrderId,
+        });
+      }
+      
+      if (savedOrderId) {
+        setCurrentOrderId(savedOrderId);
+        console.log('🔄 OrderId restaurado:', savedOrderId);
+        
+        // Cargar la orden desde la API para restaurar el carrito
+        fetch(`/api/orders/${savedOrderId}`)
+          .then(res => res.json())
+          .then(order => {
+            if (order && order.items) {
+              const cartItems: CartItem[] = order.items
+                .filter((item: any) => !item.voided)
+                .map((item: any) => ({
+                  productId: item.productId,
+                  productName: item.productName,
+                  unitPrice: parseFloat(item.unitPrice),
+                  quantity: item.quantity,
+                  notes: item.notes || "",
+                  frostingId: item.frostingId,
+                  frostingName: item.frostingName,
+                  dryToppingId: item.dryToppingId,
+                  dryToppingName: item.dryToppingName,
+                  extraId: item.extraId,
+                  extraName: item.extraName,
+                  customModifiers: item.customModifiers,
+                  sentToKitchen: order.status === "preparing" || order.status === "ready" || order.status === "delivered",
+                  orderStatus: order.status,
+                  orderId: order.id,
+                  itemId: item.id,
+                  deliveredToTable: item.deliveredToTable || false,
+                  seat: item.seat || "C",
+                  course: item.course || 1,
+                  isBeverage: item.product?.category?.isBeverage || false,
+                }));
+              
+              setCart(cartItems);
+              const maxCourse = Math.max(...cartItems.map(i => i.course || 1), 1);
+              setActiveCourse(maxCourse);
+              console.log('✅ Carrito restaurado desde API:', cartItems.length, 'items');
+            }
+          })
+          .catch(error => {
+            console.error('Error cargando orden desde API:', error);
+          });
+      }
+      
+      if (savedGuestCount) {
+        const count = parseInt(savedGuestCount);
+        setGuestCount(count);
+        setTempGuestCount(count);
+      }
+      
+      if (savedActiveCourse) {
+        setActiveCourse(parseInt(savedActiveCourse));
+      }
+      
+      if (savedActiveSeat) {
+        setActiveSeat(savedActiveSeat);
+      }
+    } catch (error) {
+      console.error('Error restaurando estado desde localStorage:', error);
+    }
   }, []);
 
   useEffect(() => {
@@ -222,7 +333,22 @@ export default function BarPage() {
     }
   }, [showTableSelection, selectedTable, customerName]);
 
-  // Detectar cuando la app vuelve de segundo plano (ej: después de compartir PDF)
+  // Este useEffect estaba duplicado - eliminado
+
+  useEffect(() => {
+    const updateActivity = () => setLastActivity(Date.now());
+    
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('touchstart', updateActivity);
+    
+    return () => {
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('touchstart', updateActivity);
+    };
+  }, []);
+
   useEffect(() => {
     let wasHidden = false;
     
@@ -252,6 +378,51 @@ export default function BarPage() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [selectedTable, customerName]);
+
+  // Guardar estado en localStorage cuando cambie
+  useEffect(() => {
+    if (cart.length > 0) {
+      localStorage.setItem('barCart', JSON.stringify(cart));
+    } else {
+      localStorage.removeItem('barCart');
+    }
+  }, [cart]);
+
+  useEffect(() => {
+    if (selectedTable) {
+      localStorage.setItem('barSelectedTable', JSON.stringify(selectedTable));
+    } else {
+      localStorage.removeItem('barSelectedTable');
+    }
+  }, [selectedTable]);
+
+  useEffect(() => {
+    if (customerName) {
+      localStorage.setItem('barCustomerName', customerName);
+    } else {
+      localStorage.removeItem('barCustomerName');
+    }
+  }, [customerName]);
+
+  useEffect(() => {
+    if (currentOrderId) {
+      localStorage.setItem('barCurrentOrderId', currentOrderId);
+    } else {
+      localStorage.removeItem('barCurrentOrderId');
+    }
+  }, [currentOrderId]);
+
+  useEffect(() => {
+    localStorage.setItem('barGuestCount', guestCount.toString());
+  }, [guestCount]);
+
+  useEffect(() => {
+    localStorage.setItem('barActiveCourse', activeCourse.toString());
+  }, [activeCourse]);
+
+  useEffect(() => {
+    localStorage.setItem('barActiveSeat', activeSeat);
+  }, [activeSeat]);
 
   // Polling para actualizar estado de items del carrito automáticamente
   useEffect(() => {
@@ -626,8 +797,15 @@ export default function BarPage() {
     setSelectedTable(null);
     setCart([]);
     setActiveCourse(1);
-    setCurrentOrderId(null);
+    setActiveSeat("C");
     setCustomerName("");
+    setCurrentOrderId(null);
+    
+    // Limpiar localStorage
+    localStorage.removeItem('barCart');
+    localStorage.removeItem('barSelectedTable');
+    localStorage.removeItem('barCustomerName');
+    localStorage.removeItem('barCurrentOrderId');
   }
 
   function handleNewDeliveryOrder() {
@@ -697,17 +875,18 @@ export default function BarPage() {
     setSelectedTable(null);
     setShowTableSelection(false);
     setCustomerName(order.customerName || "");
+    setCurrentOrderId(order.id);
     
-    // Cargar items de TODAS las órdenes del mismo cliente (agrupar al cobrar)
+    // Cargar la orden completa desde la API para tener todos los items actualizados
     try {
-      const allCartItems: CartItem[] = [];
-      const customerDeliveryOrders = deliveryOrders.filter(
-        (o) => o.customerName === order.customerName
-      );
+      const res = await fetch(`/api/orders/${order.id}`);
+      if (!res.ok) throw new Error('Error fetching order');
       
-      for (const dOrder of customerDeliveryOrders) {
-        const items = (dOrder.items || [])
-          .filter((item: any) => !item.voided) // Excluir items eliminados
+      const fullOrder = await res.json();
+      
+      if (fullOrder && fullOrder.items) {
+        const cartItems: CartItem[] = fullOrder.items
+          .filter((item: any) => !item.voided)
           .map((item: any) => ({
             productId: item.productId,
             productName: item.productName,
@@ -721,44 +900,43 @@ export default function BarPage() {
             extraId: item.extraId,
             extraName: item.extraName,
             customModifiers: item.customModifiers,
-            sentToKitchen: dOrder.status === "preparing" || dOrder.status === "ready" || dOrder.status === "delivered",
-            orderStatus: dOrder.status,
-            orderId: dOrder.id,
+            sentToKitchen: fullOrder.status === "preparing" || fullOrder.status === "ready" || fullOrder.status === "delivered",
+            orderStatus: fullOrder.status,
+            orderId: fullOrder.id,
             itemId: item.id,
             deliveredToTable: item.deliveredToTable || false,
             seat: item.seat || "C",
             course: item.course || 1,
             isBeverage: item.product?.category?.isBeverage || false,
           }));
-        allCartItems.push(...items);
-      }
-      
-      const maxCourse = Math.max(...allCartItems.map(i => i.course || 1), 1);
-      setActiveCourse(maxCourse);
-      setCart(allCartItems);
-      setCurrentOrderId(order.id); // Usar la primera orden como principal
-      
-      // Restaurar estado de división de cuenta si existe
-      const splitData = (order as any).splitBillData;
-      if (splitData) {
-        try {
-          const parsed = typeof splitData === "string" ? JSON.parse(splitData) : splitData;
-          if (parsed && parsed.itemAssignments) {
-            setItemAssignments(parsed.itemAssignments);
-            setIndividualPayments(parsed.individualPayments || {});
-            setIndividualTips(parsed.individualTips || {});
-            setGuestCount(parsed.guestCount || 1);
-            setTempGuestCount(parsed.guestCount || 1);
-            setShowingPayment(true);
-            setPaymentStep(parsed.paymentStep || "split-overview");
-            toast.success(`División de cuenta restaurada`);
-            return;
+        
+        const maxCourse = Math.max(...cartItems.map(i => i.course || 1), 1);
+        setActiveCourse(maxCourse);
+        setCart(cartItems);
+        
+        // Restaurar estado de división de cuenta si existe
+        const splitData = fullOrder.splitBillData;
+        if (splitData) {
+          try {
+            const parsed = typeof splitData === "string" ? JSON.parse(splitData) : splitData;
+            if (parsed && parsed.itemAssignments) {
+              setItemAssignments(parsed.itemAssignments);
+              setIndividualPayments(parsed.individualPayments || {});
+              setIndividualTips(parsed.individualTips || {});
+              setGuestCount(parsed.guestCount || 1);
+              setTempGuestCount(parsed.guestCount || 1);
+              setShowingPayment(true);
+              setPaymentStep(parsed.paymentStep || "split-overview");
+              toast.success(`División de cuenta restaurada`);
+              return;
+            }
+          } catch (e) {
+            console.error("Error parsing splitBillData:", e);
           }
-        } catch (e) {
-          console.error("Error parsing splitBillData:", e);
         }
+        
+        toast.success(`Orden Para Llevar - ${order.customerName || `#${order.orderNumber}`} cargada (${cartItems.length} items)`);
       }
-      toast.success(`Orden Para Llevar - ${order.customerName || `#${order.orderNumber}`} cargada (${customerDeliveryOrders.length} envíos, ${allCartItems.length} items)`);
     } catch (error) {
       console.error('Error loading delivery order:', error);
       toast.error("Error cargando orden");
@@ -830,7 +1008,11 @@ export default function BarPage() {
         await fetch(`/api/tables/${selectedTable.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "available", guestCount: 1 }),
+          body: JSON.stringify({
+            ...selectedTable,
+            status: "available",
+            guestCount: 1,
+          }),
         });
       }
       
@@ -846,8 +1028,15 @@ export default function BarPage() {
       setSelectedTable(null);
       setCart([]);
       setActiveCourse(1);
-      setCurrentOrderId(null);
+      setActiveSeat("C");
       setCustomerName("");
+      setCurrentOrderId(null);
+      
+      // Limpiar localStorage
+      localStorage.removeItem('barCart');
+      localStorage.removeItem('barSelectedTable');
+      localStorage.removeItem('barCustomerName');
+      localStorage.removeItem('barCurrentOrderId');
       
       // Recargar mesas y delivery orders
       fetchTables();
@@ -2038,6 +2227,12 @@ export default function BarPage() {
     setSplitPaymentMethod(null);
     setSplitCashReceived("");
     setShowTableSelection(true);
+    
+    // Limpiar localStorage
+    localStorage.removeItem('barCart');
+    localStorage.removeItem('barSelectedTable');
+    localStorage.removeItem('barCustomerName');
+    localStorage.removeItem('barCurrentOrderId');
     
     // Recargar delivery orders para quitar la orden completada
     fetchDeliveryOrders();
