@@ -36,6 +36,8 @@ export default function OrderHistoryPage() {
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(false);
+  const [newPaymentMethod, setNewPaymentMethod] = useState<string>("");
 
   useEffect(() => {
     fetchOrders();
@@ -70,6 +72,40 @@ export default function OrderHistoryPage() {
       toast.error("Error eliminando orden");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleUpdatePaymentMethod(orderId: string, orderNumber: number) {
+    if (!newPaymentMethod) {
+      toast.error("Selecciona un método de pago");
+      return;
+    }
+    
+    setEditingPayment(true);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/payment-method`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentMethod: newPaymentMethod }),
+      });
+      
+      if (!res.ok) throw new Error();
+      
+      // Actualizar la orden en el estado local
+      setOrders(orders.map(o => 
+        o.id === orderId ? { ...o, paymentMethod: newPaymentMethod as any } : o
+      ));
+      
+      if (selectedOrder?.id === orderId) {
+        setSelectedOrder({ ...selectedOrder, paymentMethod: newPaymentMethod as any });
+      }
+      
+      toast.success(`Método de pago actualizado a ${methodLabels[newPaymentMethod]}`);
+      setNewPaymentMethod("");
+    } catch {
+      toast.error("Error actualizando método de pago");
+    } finally {
+      setEditingPayment(false);
     }
   }
 
@@ -270,15 +306,37 @@ export default function OrderHistoryPage() {
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>
-                  {format(new Date(selectedOrder.createdAt), "EEEE d 'de' MMMM, HH:mm", { locale: es })}
-                </span>
-                {selectedOrder.paymentMethod && (
-                  <Badge variant="outline" className="text-xs">
-                    {methodLabels[selectedOrder.paymentMethod] || selectedOrder.paymentMethod}
-                  </Badge>
-                )}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>
+                    {format(new Date(selectedOrder.createdAt), "EEEE d 'de' MMMM, HH:mm", { locale: es })}
+                  </span>
+                </div>
+                
+                {/* Payment Method Editor */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Método de pago:</span>
+                  <select
+                    value={newPaymentMethod || selectedOrder.paymentMethod || ""}
+                    onChange={(e) => setNewPaymentMethod(e.target.value)}
+                    className="flex-1 px-3 py-1.5 text-sm border rounded-md bg-background"
+                  >
+                    <option value="cash">Efectivo</option>
+                    <option value="transfer">Transferencia</option>
+                    <option value="terminal_mercadopago">Terminal</option>
+                    <option value="split">Dividido</option>
+                    <option value="platform_delivery">Plataforma</option>
+                  </select>
+                  {newPaymentMethod && newPaymentMethod !== selectedOrder.paymentMethod && (
+                    <Button
+                      size="sm"
+                      onClick={() => handleUpdatePaymentMethod(selectedOrder.id, selectedOrder.orderNumber)}
+                      disabled={editingPayment}
+                    >
+                      {editingPayment ? "Guardando..." : "Guardar"}
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {selectedOrder.customerName && (
