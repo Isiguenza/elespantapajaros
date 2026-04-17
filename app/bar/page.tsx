@@ -1225,6 +1225,16 @@ export default function BarPage() {
     const isPlatform = customerName && (customerName.startsWith('Uber') || customerName.startsWith('Rappi') || customerName.startsWith('Didi'));
     const priceToUse = isPlatform && product.platformPrice ? parseFloat(product.platformPrice) : parseFloat(product.price);
     
+    if (isPlatform) {
+      console.log(`🚨 Producto ${product.name}:`, {
+        isPlatform,
+        hasPlatformPrice: !!product.platformPrice,
+        platformPrice: product.platformPrice,
+        normalPrice: product.price,
+        priceUsed: priceToUse,
+      });
+    }
+    
     const newItem: CartItem = {
       productId: product.id,
       productName: product.name,
