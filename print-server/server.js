@@ -124,7 +124,8 @@ app.post('/print', async (req, res) => {
       total, 
       tableNumber,
       isDelivery,
-      paymentMethod 
+      paymentMethod,
+      discount 
     } = req.body;
 
     let content = "";
@@ -220,6 +221,19 @@ app.post('/print', async (req, res) => {
       const price = `$${item.total}`;
       const itemSpaces = Math.max(1, 48 - qtyName.length - price.length);
       content += qtyName + " ".repeat(itemSpaces) + price + "\n";
+      
+      // Agregar promoción si existe
+      if (item.promotionName && item.promotionDiscount) {
+        const promoText = `  \u21b3 ${item.promotionName}`;
+        const promoPrice = `-$${item.promotionDiscount}`;
+        const promoSpaces = Math.max(1, 48 - promoText.length - promoPrice.length);
+        content += promoText + " ".repeat(promoSpaces) + promoPrice + "\n";
+      }
+      
+      // Agregar indicador de invitado si existe
+      if (item.isGuest) {
+        content += `  \u21b3 Invitado\n`;
+      }
     }
     
     // Espacio antes del total
@@ -241,6 +255,15 @@ app.post('/print', async (req, res) => {
       content += "Propina:";
       const tipStr = `$${tip}`;
       content += " ".repeat(48 - 8 - tipStr.length) + tipStr + "\n";
+      content += commands.feedLine;
+    }
+    
+    // Descuento (si hay)
+    if (discount && discount.amount > 0) {
+      const discountLabel = `${discount.name}:`;
+      const discountStr = `-$${discount.amount}`;
+      content += discountLabel;
+      content += " ".repeat(48 - discountLabel.length - discountStr.length) + discountStr + "\n";
       content += commands.feedLine;
     }
     

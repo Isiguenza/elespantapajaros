@@ -29,6 +29,35 @@ import { es } from "date-fns/locale";
 export default function DispatchPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [consolidating, setConsolidating] = useState(false);
+
+  async function handleConsolidateDuplicates() {
+    if (!confirm("¿Consolidar órdenes duplicadas? Esto juntará todas las órdenes activas del mismo cliente/mesa en una sola orden.")) {
+      return;
+    }
+
+    setConsolidating(true);
+    try {
+      const res = await fetch("/api/orders/consolidate-duplicates", {
+        method: "POST",
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(
+          `Órdenes consolidadas: ${data.stats.groupsConsolidated} grupos, ${data.stats.itemsMoved} items movidos, ${data.stats.ordersDeleted} órdenes eliminadas`
+        );
+        fetchOrders();
+      } else {
+        throw new Error("Error consolidando órdenes");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Error al consolidar órdenes duplicadas");
+    } finally {
+      setConsolidating(false);
+    }
+  }
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -251,7 +280,15 @@ export default function DispatchPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Despacho</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={handleConsolidateDuplicates}
+            disabled={consolidating}
+            variant="outline"
+            size="sm"
+          >
+            {consolidating ? "Consolidando..." : "🔗 Consolidar Duplicados"}
+          </Button>
           <Badge variant="outline" className="gap-1">
             <CookingPot className="size-3" />
             {preparingOrders.length} preparando

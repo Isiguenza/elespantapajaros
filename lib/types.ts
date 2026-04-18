@@ -13,10 +13,15 @@ export interface Table {
   name: string | null;
   capacity: number;
   status: "available" | "occupied" | "reserved";
+  positionX?: number | null;
+  positionY?: number | null;
+  shape?: "square" | "round" | null;
+  rotation?: number | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
   activeOrder?: Order | null;
+  reservations?: Reservation[];
 }
 
 export interface ProductVariant {
@@ -219,6 +224,13 @@ export interface CartItem {
   seat?: string | null; // Asiento: "A1", "A2", ... o "C" (centro/compartido)
   course?: number; // Tiempo/curso: 1, 2, 3...
   isBeverage?: boolean; // Si el item es bebida (del frontend)
+  // Promotion fields
+  promotionId?: string | null;
+  promotionName?: string | null;
+  originalPrice?: number | null; // Precio antes de la promoción
+  promotionDiscount?: number | null; // Descuento aplicado por la promoción
+  // Guest fields
+  isGuest?: boolean; // Si el item es invitado (precio = 0)
 }
 
 export interface CashRegister {
@@ -286,4 +298,55 @@ export interface MercadoPagoDevice {
   posId: string | null;
   storeId: string | null;
   active: boolean;
+}
+
+export interface Reservation {
+  id: string;
+  tableId: string;
+  customerName: string;
+  customerPhone: string | null;
+  guestCount: number;
+  reservationDate: string; // ISO date string
+  reservationTime: string; // HH:mm format
+  duration: number; // Duration in minutes
+  status: "pending" | "confirmed" | "arrived" | "cancelled" | "no_show";
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  table?: Table;
+}
+
+export interface Promotion {
+  id: string;
+  name: string;
+  description: string | null;
+  type: "buy_x_get_y" | "percentage_discount" | "fixed_discount" | "combo";
+  buyQuantity: number | null;
+  getQuantity: number | null;
+  discountPercentage: number | null;
+  discountAmount: number | null;
+  applyTo: "all_products" | "specific_products" | "category";
+  productIds: string | null; // JSON array
+  categoryId: string | null;
+  active: boolean;
+  startDate: string | null;
+  endDate: string | null;
+  daysOfWeek: string | null; // JSON array
+  startTime: string | null;
+  endTime: string | null;
+  priority: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Discount {
+  id: string;
+  name: string;
+  description: string | null;
+  type: "percentage" | "fixed_amount" | "flexible";
+  value: number;
+  requiresAuthorization: boolean;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }

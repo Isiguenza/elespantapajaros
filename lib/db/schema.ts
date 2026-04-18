@@ -8,6 +8,8 @@ import {
   boolean,
   timestamp,
   pgEnum,
+  date,
+  time,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -56,6 +58,30 @@ export const tableStatusEnum = pgEnum("table_status", [
   "available",
   "occupied",
   "reserved",
+]);
+export const reservationStatusEnum = pgEnum("reservation_status", [
+  "pending",
+  "confirmed",
+  "arrived",
+  "cancelled",
+  "no_show",
+]);
+export const tableShapeEnum = pgEnum("table_shape", ["square", "round"]);
+export const promotionTypeEnum = pgEnum("promotion_type", [
+  "buy_x_get_y",
+  "percentage_discount",
+  "fixed_discount",
+  "combo",
+]);
+export const promotionApplyToEnum = pgEnum("promotion_apply_to", [
+  "all_products",
+  "specific_products",
+  "category",
+]);
+export const discountTypeEnum = pgEnum("discount_type", [
+  "percentage",
+  "fixed_amount",
+  "flexible",
 ]);
 
 // User profiles (extends Neon Auth users)
@@ -227,6 +253,10 @@ export const orders = pgTable("orders", {
   loyaltyCardId: uuid("loyalty_card_id").references(() => loyaltyCards.id),
   cashRegisterId: uuid("cash_register_id").references(() => cashRegisters.id),
   splitBillData: text("split_bill_data"), // JSON: { itemAssignments, individualPayments, individualTips, guestCount }
+  // Discount fields
+  discountId: uuid("discount_id").references(() => discounts.id),
+  discountName: varchar("discount_name", { length: 255 }),
+  discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -258,6 +288,11 @@ export const orderItems = pgTable("order_items", {
   voided: boolean("voided").notNull().default(false),
   voidReason: text("void_reason"),
   voidedBy: uuid("voided_by").references(() => userProfiles.id),
+  // Promotion fields
+  promotionId: uuid("promotion_id").references(() => promotions.id),
+  promotionName: varchar("promotion_name", { length: 255 }),
+  originalPrice: decimal("original_price", { precision: 10, scale: 2 }),
+  promotionDiscount: decimal("promotion_discount", { precision: 10, scale: 2 }),
 });
 
 // Order payments (for split payments)
@@ -285,6 +320,10 @@ export const tables = pgTable("tables", {
   capacity: integer("capacity").notNull().default(4),
   guestCount: integer("guest_count").notNull().default(1),
   status: tableStatusEnum("status").notNull().default("available"),
+  positionX: integer("position_x"),
+  positionY: integer("position_y"),
+  shape: tableShapeEnum("shape").default("square"),
+  rotation: integer("rotation").default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -522,6 +561,35 @@ export const loyaltyCardsRelations = relations(loyaltyCards, ({ many }) => ({
   orders: many(orders),
 }));
 
+// Reservations
+export const reservations = pgTable("reservations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  tableId: uuid("table_id")
+    .notNull()
+    .references(() => tables.id, { onDelete: "cascade" }),
+  customerName: varchar("customer_name", { length: 255 }).notNull(),
+  customerPhone: varchar("customer_phone", { length: 50 }),
+  guestCount: integer("guest_count").notNull().default(1),
+  reservationDate: date("reservation_date").notNull(),
+  reservationTime: time("reservation_time").notNull(),
+  duration: integer("duration").notNull().default(120), // Duration in minutes
+  status: reservationStatusEnum("status").notNull().default("pending"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const reservationsRelations = relations(reservations, ({ one }) => ({
+  table: one(tables, {
+    fields: [reservations.tableId],
+    references: [tables.id],
+  }),
+}));
+
+export const tablesRelationsWithReservations = relations(tables, ({ many }) => ({
+  reservations: many(reservations),
+}));
+
 export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ one }) => ({
   card: one(loyaltyCards, {
     fields: [loyaltyTransactions.cardId],
@@ -535,4 +603,54 @@ export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ on
     fields: [loyaltyTransactions.createdBy],
     references: [userProfiles.id],
   }),
+}));
+
+// Promotions table
+export const promotions = pgTable("promotions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  type: promotionTypeEnum("type").notNull(),
+  buyQuantity: integer("buy_quantity"),
+  getQuantity: integer("get_quantity"),
+  discountPercentage: decimal("discount_percentage", { precision: 5, scale: 2 }),
+  discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }),
+  applyTo: promotionApplyToEnum("apply_to").notNull(),
+  productIds: text("product_ids"), // JSON array
+  categoryId: uuid("category_id").references(() => categories.id),
+  active: boolean("active").default(true),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  daysOfWeek: text("days_of_week"), // JSON array
+  startTime: time("start_time"),
+  endTime: time("end_time"),
+  priority: integer("priority").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Discounts table
+export const discounts = pgTable("discounts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  type: discountTypeEnum("type").notNull(),
+  value: decimal("value", { precision: 10, scale: 2 }).notNull(),
+  requiresAuthorization: boolean("requires_authorization").default(false),
+  active: boolean("active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Promotions relations
+export const promotionsRelations = relations(promotions, ({ one }) => ({
+  category: one(categories, {
+    fields: [promotions.categoryId],
+    references: [categories.id],
+  }),
+}));
+
+// Categories relations with promotions
+export const categoriesRelationsWithPromotions = relations(categories, ({ many }) => ({
+  promotions: many(promotions),
 }));

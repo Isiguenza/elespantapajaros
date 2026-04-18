@@ -19,15 +19,28 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank, House, Coffee, ShoppingBag, Users, Printer, User, ForkKnife } from "@phosphor-icons/react";
+import { Plus, Minus, Trash, MagnifyingGlass, DotsThree, QrCode, Stamp, Camera, X, Money, CreditCard, Check, Spinner, Bank, House, Coffee, ShoppingBag, Users, Printer, User, ForkKnife, GearSix, CookingPot, Gift, Percent } from "@phosphor-icons/react";
 import { SlideToConfirm } from "@/components/ui/slide-to-confirm";
 import { toast } from "sonner";
-import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption, Table, Order } from "@/lib/types";
+import type { Product, Category, CartItem, Frosting, DryTopping, Extra, LoyaltyCard, CategoryFlow, ModifierStep, ModifierOption, Table, Order, Promotion, Discount } from "@/lib/types";
+import { applyPromotions, calculateDiscount } from "@/lib/utils/promotions";
+import { Sidebar } from "./components/Sidebar";
+import { ReservationsView } from "./components/ReservationsView";
 
 export default function BarPage() {
   const router = useRouter();
+  
+  // Estado de vista activa (POS o Reservas)
+  const [activeView, setActiveView] = useState<"pos" | "reservations">("pos");
   
   // Estados del sistema de mesas
   const [tables, setTables] = useState<Table[]>([]);
@@ -41,6 +54,20 @@ export default function BarPage() {
   const [deliveryPlatform, setDeliveryPlatform] = useState<"Uber" | "Rappi" | "Didi" | "">(""); // Plataforma seleccionada
   const [platformOrderDigits, setPlatformOrderDigits] = useState(""); // Últimos 4 dígitos de la orden
   const [tablesWithReadyItems, setTablesWithReadyItems] = useState<Set<string>>(new Set());
+  
+  // Estados de promociones y descuentos
+  const [activePromotions, setActivePromotions] = useState<Promotion[]>([]);
+  const [availableDiscounts, setAvailableDiscounts] = useState<Discount[]>([]);
+  const [selectedDiscount, setSelectedDiscount] = useState<Discount | null>(null);
+  const [showFlexibleDiscountDialog, setShowFlexibleDiscountDialog] = useState(false);
+  const [flexibleDiscountType, setFlexibleDiscountType] = useState<"percentage" | "fixed">("percentage");
+  const [flexibleDiscountValue, setFlexibleDiscountValue] = useState<number>(10);
+  const [customFlexibleAmount, setCustomFlexibleAmount] = useState<string>("");
+  
+  // Estados para menú admin e invitados
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
+  const [showGuestItemsDialog, setShowGuestItemsDialog] = useState(false);
+  const [guestItemsSelection, setGuestItemsSelection] = useState<number[]>([]);
   
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -178,6 +205,8 @@ export default function BarPage() {
   useEffect(() => {
     checkCashRegister();
     restoreSession();
+    fetchActivePromotions();
+    fetchAvailableDiscounts();
     // No cargar mesas ni delivery orders hasta que se muestre la pantalla de selección
     // Esto acelera la carga inicial
     
@@ -423,6 +452,52 @@ export default function BarPage() {
   useEffect(() => {
     localStorage.setItem('barActiveSeat', activeSeat);
   }, [activeSeat]);
+
+  // Aplicar promociones automáticamente cuando cambia el carrito
+  useEffect(() => {
+    console.log('🔄 useEffect promociones ejecutado:', { 
+      cartLength: cart.length, 
+      activePromotionsLength: activePromotions.length,
+      activePromotions: activePromotions.map(p => ({ id: p.id, name: p.name, type: p.type, applyTo: p.applyTo }))
+    });
+    
+    if (cart.length === 0 || activePromotions.length === 0) {
+      console.log('⚠️ No se aplican promociones: cart.length =', cart.length, 'activePromotions.length =', activePromotions.length);
+      return;
+    }
+    
+    const cartWithPromotions = applyPromotions(cart, activePromotions);
+    
+    // Comparar si realmente hay cambios en las promociones
+    const hasPromotionChanges = cartWithPromotions.some((item, index) => {
+      const original = cart[index];
+      if (!original) return false;
+      return item.promotionId !== original.promotionId ||
+             item.promotionDiscount !== original.promotionDiscount ||
+             item.promotionName !== original.promotionName;
+    });
+    
+    console.log('🔍 hasPromotionChanges:', hasPromotionChanges);
+    console.log('📋 Items con promoción en cartWithPromotions:', cartWithPromotions.filter(i => i.promotionId).map(i => ({
+      name: i.productName,
+      qty: i.quantity,
+      promotionId: i.promotionId,
+      promotionName: i.promotionName,
+      promotionDiscount: i.promotionDiscount
+    })));
+    
+    if (hasPromotionChanges) {
+      console.log('✅ Promociones aplicadas al carrito - actualizando state');
+      setCart(cartWithPromotions);
+    } else {
+      console.log('⚠️ No hay cambios en promociones, no se actualiza el state');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    // Crear una clave que cambie cuando cambian cantidades o productos
+    cart.map(item => `${item.productId}-${item.quantity}-${item.unitPrice}`).join(','),
+    activePromotions.length
+  ])
 
   // Polling para actualizar estado de items del carrito automáticamente
   useEffect(() => {
@@ -686,6 +761,32 @@ export default function BarPage() {
       }
     } catch (error) {
       console.error('Error fetching delivery orders:', error);
+    }
+  }
+
+  async function fetchActivePromotions() {
+    try {
+      const res = await fetch("/api/promotions/active");
+      if (res.ok) {
+        const data = await res.json();
+        setActivePromotions(data);
+        console.log('✅ Promociones activas cargadas:', data.length);
+      }
+    } catch (error) {
+      console.error('Error fetching active promotions:', error);
+    }
+  }
+
+  async function fetchAvailableDiscounts() {
+    try {
+      const res = await fetch("/api/discounts?active=true");
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableDiscounts(data);
+        console.log('✅ Descuentos disponibles:', data.length);
+      }
+    } catch (error) {
+      console.error('Error fetching available discounts:', error);
     }
   }
 
@@ -1075,34 +1176,51 @@ export default function BarPage() {
     }));
 
     try {
-      // Siempre crear nueva orden para que cocina solo vea los items nuevos
-      console.log("🆕 Creando orden para cocina con", pendingItems.length, "items nuevos");
-      const orderData = {
-        tableId: selectedTable?.id || null,
-        items: itemsData,
-        status: "preparing",
-        paymentMethod: null,
-        loyaltyCardId: null,
-        customerName: customerName || null,
-      };
-
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(orderData),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Error creating order");
-      }
-
-      const createdOrder = await res.json();
-      console.log("✅ Orden creada:", createdOrder.id);
-      const orderId = createdOrder.id;
+      let orderId: string;
       
-      // Solo guardar como currentOrderId si es la primera orden
-      if (!currentOrderId) {
+      // Si ya existe una orden, agregar items a esa orden
+      if (currentOrderId) {
+        console.log("📝 Agregando", pendingItems.length, "items a orden existente:", currentOrderId);
+        
+        const res = await fetch(`/api/orders/${currentOrderId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: itemsData }),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Error adding items to order");
+        }
+
+        console.log("✅ Items agregados a orden existente");
+        orderId = currentOrderId;
+      } else {
+        // Si NO existe orden, crear una nueva
+        console.log("🆕 Creando nueva orden con", pendingItems.length, "items");
+        const orderData = {
+          tableId: selectedTable?.id || null,
+          items: itemsData,
+          status: "preparing",
+          paymentMethod: null,
+          loyaltyCardId: null,
+          customerName: customerName || null,
+        };
+
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(orderData),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.error || "Error creating order");
+        }
+
+        const createdOrder = await res.json();
+        console.log("✅ Orden creada:", createdOrder.id);
+        orderId = createdOrder.id;
         setCurrentOrderId(orderId);
       }
       
@@ -2125,24 +2243,38 @@ export default function BarPage() {
       if (sentItems.length === 0) return;
 
       // Agrupar items solo por asiento, luego por producto
-      type TicketItem = { name: string; qty: number; price: number; total: number };
+      type TicketItem = { 
+        name: string; 
+        qty: number; 
+        price: number; 
+        total: number;
+        promotionName?: string;
+        promotionDiscount?: number;
+        isGuest?: boolean;
+      };
       const seatGroups = new Map<string, Map<string, TicketItem>>();
       for (const item of sentItems) {
         const seat = item.seat || "C";
         if (!seatGroups.has(seat)) seatGroups.set(seat, new Map());
         const group = seatGroups.get(seat)!;
-        const key = `${item.productId}-${item.unitPrice}`;
+        const key = `${item.productId}-${item.unitPrice}-${item.promotionId || 'none'}`;
         const existing = group.get(key);
         if (existing) {
           existing.qty += item.quantity;
           existing.total = existing.qty * existing.price;
+          if (item.promotionDiscount) {
+            existing.promotionDiscount = (existing.promotionDiscount || 0) + item.promotionDiscount;
+          }
         } else {
           const lineTotal = item.quantity * item.unitPrice;
           group.set(key, { 
             name: item.productName, 
             qty: item.quantity, 
             price: item.unitPrice,
-            total: lineTotal
+            total: lineTotal,
+            promotionName: item.promotionName || undefined,
+            promotionDiscount: item.promotionDiscount || undefined,
+            isGuest: item.isGuest || undefined
           });
         }
       }
@@ -2162,14 +2294,34 @@ export default function BarPage() {
         return a.localeCompare(b, undefined, { numeric: true });
       });
 
-      const itemsBySeat: Record<string, Array<{ name: string; qty: number; total: number }>> = {};
+      const itemsBySeat: Record<string, Array<{ 
+        name: string; 
+        qty: number; 
+        total: number;
+        promotionName?: string;
+        promotionDiscount?: number;
+        isGuest?: boolean;
+      }>> = {};
       for (const seatKey of seatKeys) {
         itemsBySeat[seatKey] = Array.from(seatGroups.get(seatKey)!.values()).map(item => ({
           name: item.name,
           qty: item.qty,
-          total: Math.round(item.total)
+          total: Math.round(item.total),
+          promotionName: item.promotionName,
+          promotionDiscount: item.promotionDiscount ? Math.round(item.promotionDiscount) : undefined,
+          isGuest: item.isGuest
         }));
       }
+
+      // Calcular descuento si hay
+      const discountData = selectedDiscount ? {
+        name: selectedDiscount.name,
+        amount: Math.round(calculateDiscount(
+          subtotal,
+          selectedDiscount.type,
+          parseFloat(selectedDiscount.value.toString())
+        ))
+      } : undefined;
 
       // Enviar a impresora ESC/POS
       const printData: any = {
@@ -2180,7 +2332,8 @@ export default function BarPage() {
         tip: Math.round(tipAmount),
         total: Math.round(total),
         tableNumber: selectedTable?.number || "",
-        isDelivery: !selectedTable
+        isDelivery: !selectedTable,
+        discount: discountData
       };
       
       // Solo agregar paymentMethod si se pasó (desde pago completado)
@@ -2458,7 +2611,11 @@ export default function BarPage() {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount);
 
-  const cartTotal = cart.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+  const cartTotal = cart.reduce((sum, item) => {
+    // Los items invitados no suman al total
+    if (item.isGuest) return sum;
+    return sum + (item.unitPrice * item.quantity);
+  }, 0);
 
   // Dashboard de bienvenida
   if (showDashboard) {
@@ -2611,7 +2768,16 @@ export default function BarPage() {
   if (showTableSelection) {
     return (
       <div className="flex h-screen bg-neutral-950">
-        <div className="flex-1 flex flex-col">
+        {/* Sidebar de navegación */}
+        <Sidebar activeView={activeView} onViewChange={setActiveView} />
+        
+        {/* Contenido principal */}
+        {activeView === "reservations" ? (
+          <div className="flex-1">
+            <ReservationsView />
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col">
           {/* Header */}
           <div className="p-6 border-b border-neutral-800 bg-neutral-950">
             <div className="flex items-center justify-between">
@@ -2619,13 +2785,57 @@ export default function BarPage() {
                 <h1 className="text-4xl font-bold mb-2 text-white">BRUMA Marisquería</h1>
                 <p className="text-neutral-400">Selecciona una mesa para comenzar</p>
               </div>
-              <Button 
-                variant="outline" 
-                onClick={() => router.push("/dashboard")}
-                className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
-              >
-                Volver al Dashboard
-              </Button>
+              <div className="flex items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
+                    >
+                      <GearSix className="size-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuItem onClick={() => router.push("/orders/dispatch")}>
+                      <CookingPot className="size-4 mr-2" />
+                      Buscar Órdenes
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        if (!confirm("¿Consolidar órdenes duplicadas? Esto juntará todas las órdenes activas del mismo cliente/mesa en una sola orden.")) {
+                          return;
+                        }
+                        try {
+                          const res = await fetch("/api/orders/consolidate-duplicates", {
+                            method: "POST",
+                          });
+                          if (res.ok) {
+                            const data = await res.json();
+                            toast.success(
+                              `Órdenes consolidadas: ${data.stats.groupsConsolidated} grupos, ${data.stats.itemsMoved} items movidos`
+                            );
+                          } else {
+                            toast.error("Error al consolidar órdenes");
+                          }
+                        } catch (error) {
+                          toast.error("Error al consolidar órdenes duplicadas");
+                        }
+                      }}
+                    >
+                      <span className="mr-2">🔗</span>
+                      Consolidar Duplicados
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button 
+                  variant="outline" 
+                  onClick={() => router.push("/dashboard")}
+                  className="bg-neutral-900 border-neutral-800 text-white hover:bg-neutral-800"
+                >
+                  Volver al Dashboard
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -2819,7 +3029,8 @@ export default function BarPage() {
               })}
             </div>
           </div>
-        </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2833,8 +3044,8 @@ export default function BarPage() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* SIDEBAR - CARRITO */}
-      <div className="w-80 bg-neutral-950 border-r border-neutral-800 flex flex-col">
+          {/* SIDEBAR - CARRITO */}
+          <div className="w-80 bg-neutral-950 border-r border-neutral-800 flex flex-col">
         {/* Header del carrito */}
         <div className="p-4 border-b border-neutral-800">
           {/* Row de botones superior */}
@@ -3035,7 +3246,9 @@ export default function BarPage() {
               const showCourseHeaders = maxCourseInCart > 1;
               let lastCourse = 0;
               let lastSeat = "";
-              return sortedCart.map(({ item, idx: index }) => {
+              let lastPromotionId: string | null = null;
+              
+              return sortedCart.map(({ item, idx: index }, arrayIndex) => {
                 const itemCourse = item.course || 1;
                 const showCourseHeader = showCourseHeaders && itemCourse !== lastCourse;
                 if (showCourseHeader) {
@@ -3044,6 +3257,28 @@ export default function BarPage() {
                 }
                 const showSeatHeader = selectedTable && (item.seat || "C") !== lastSeat;
                 if (showSeatHeader) lastSeat = item.seat || "C";
+                
+                // Promotion grouping logic
+                const currentPromotionId = item.promotionId || null;
+                const nextItem = sortedCart[arrayIndex + 1];
+                const prevItem = arrayIndex > 0 ? sortedCart[arrayIndex - 1] : null;
+                
+                const isFirstInPromoGroup = currentPromotionId && (
+                  !prevItem || prevItem.item.promotionId !== currentPromotionId
+                );
+                const isLastInPromoGroup = currentPromotionId && (
+                  !nextItem || nextItem.item.promotionId !== currentPromotionId
+                );
+                const isInPromoGroup = !!currentPromotionId;
+                
+                // Calculate total discount for this promotion group
+                let promoTotalDiscount = 0;
+                if (isFirstInPromoGroup && currentPromotionId) {
+                  promoTotalDiscount = sortedCart
+                    .filter(({ item: i }) => i.promotionId === currentPromotionId)
+                    .reduce((sum, { item: i }) => sum + (i.promotionDiscount || 0), 0);
+                }
+                
                 return (
                   <div key={index}>
                     {showCourseHeader && (
@@ -3063,7 +3298,29 @@ export default function BarPage() {
                         }
                       </div>
                     )}
-                    <div className="rounded-lg overflow-hidden bg-neutral-900 border border-neutral-800">
+                    
+                    {/* Promotion group header */}
+                    {isFirstInPromoGroup && (
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 mt-2 bg-blue-950/50 border-t-2 border-x-2 border-blue-600 rounded-t-lg">
+                        <div className="flex items-center gap-2">
+                          <Percent className="size-4 text-blue-400" weight="bold" />
+                          <span className="text-sm font-bold text-blue-300">{item.promotionName}</span>
+                        </div>
+                        <span className="text-sm font-bold text-blue-400">-{formatCurrency(promoTotalDiscount)}</span>
+                      </div>
+                    )}
+                    
+                    <div className={`bg-neutral-900 ${
+                      isInPromoGroup 
+                        ? `border-x-2 border-blue-600 ${
+                            isFirstInPromoGroup ? 'rounded-t-none' : '-mt-px'
+                          } ${
+                            isLastInPromoGroup ? 'border-b-2 rounded-b-lg' : ''
+                          } ${
+                            !isFirstInPromoGroup && !isLastInPromoGroup ? 'rounded-none' : ''
+                          }`
+                        : 'border border-neutral-800 rounded-lg overflow-hidden'
+                    }`}>
                       <div className={`p-3 ${item.sentToKitchen ? 'opacity-75' : ''}`}>
                         <div className="flex items-start gap-3 mb-2">
                           <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
@@ -3086,13 +3343,21 @@ export default function BarPage() {
                                 </div>
                               </div>
                               <div className="flex-shrink-0 flex items-start gap-2">
-                                <span className="font-semibold text-white">{formatCurrency(item.unitPrice * item.quantity)}</span>
+                                <span className={`font-semibold ${item.isGuest ? 'line-through text-neutral-500' : 'text-white'}`}>
+                                  {formatCurrency(item.unitPrice * item.quantity)}
+                                </span>
                                 <Button variant="ghost" size="sm" onClick={() => removeFromCart(index)} className="h-6 w-6 p-0 text-red-400 hover:text-red-300">
                                   <Trash className="size-3" />
                                 </Button>
                               </div>
                             </div>
-                            <div className="text-xs text-neutral-500 mt-0.5">{formatCurrency(item.unitPrice)} c/u</div>
+                            <div className="text-xs text-neutral-500 mt-0.5">
+                              {item.isGuest ? (
+                                <span className="line-through">{formatCurrency(item.unitPrice)} c/u</span>
+                              ) : (
+                                <>{formatCurrency(item.unitPrice)} c/u</>
+                              )}
+                            </div>
                             {(item.frostingName || item.dryToppingName || item.extraName || item.customModifiers || item.notes) && (
                               <div className="mt-1 space-y-0.5">
                                 {item.frostingName && (
@@ -3124,6 +3389,12 @@ export default function BarPage() {
                                 {item.notes && (
                                   <div className="text-xs text-yellow-600 dark:text-yellow-500 flex items-start gap-1 italic">
                                     <span className="opacity-50">↳</span><span>{item.notes}</span>
+                                  </div>
+                                )}
+                                {item.isGuest && (
+                                  <div className="text-xs text-yellow-600 dark:text-yellow-500 flex items-start gap-1 italic font-medium">
+                                    <span className="opacity-50">↳</span>
+                                    <span>Invitado</span>
                                   </div>
                                 )}
                               </div>
@@ -3753,21 +4024,92 @@ export default function BarPage() {
               </Button>
             </div>
 
+            {/* Selector de Descuento */}
+            {availableDiscounts.length > 0 && (
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardContent className="p-4">
+                  <Label className="text-white mb-2 block">Descuento (opcional)</Label>
+                  <Select
+                    value={selectedDiscount?.id || "none"}
+                    onValueChange={(value) => {
+                      if (value === "none") {
+                        setSelectedDiscount(null);
+                      } else {
+                        const discount = availableDiscounts.find(d => d.id === value);
+                        if (discount && discount.type === "flexible") {
+                          setSelectedDiscount(discount);
+                          setShowFlexibleDiscountDialog(true);
+                        } else {
+                          setSelectedDiscount(discount || null);
+                        }
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="bg-neutral-800 border-neutral-700 text-white">
+                      <SelectValue placeholder="Sin descuento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin descuento</SelectItem>
+                      {availableDiscounts.map((discount) => (
+                        <SelectItem key={discount.id} value={discount.id}>
+                          {discount.name} (
+                          {discount.type === "percentage" ? `${discount.value}%` : 
+                           discount.type === "fixed_amount" ? `$${discount.value}` :
+                           "Flexible"})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Resumen de totales */}
             <Card className="bg-neutral-900 border-neutral-800">
               <CardContent className="p-6 space-y-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-neutral-400">Total de la orden</span>
-                  <span className="text-3xl font-bold text-white">{formatCurrency(cartTotal)}</span>
+                  <span className="text-neutral-400">Subtotal</span>
+                  <span className="text-2xl font-bold text-white">{formatCurrency(cartTotal)}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-neutral-400">Pagado</span>
-                  <span className="text-lg font-semibold text-green-400">{formatCurrency(0)}</span>
-                </div>
-                <div className="border-t border-neutral-700 pt-3 flex justify-between items-center">
-                  <span className="text-white font-medium">Restante</span>
-                  <span className="text-2xl font-bold text-yellow-400">{formatCurrency(cartTotal)}</span>
-                </div>
+                {selectedDiscount && (() => {
+                  let discountValue = parseFloat(selectedDiscount.value.toString());
+                  
+                  // For flexible discounts, use the selected value
+                  if (selectedDiscount.type === "flexible") {
+                    if (flexibleDiscountType === "percentage") {
+                      discountValue = flexibleDiscountValue;
+                    } else {
+                      discountValue = parseFloat(customFlexibleAmount) || 0;
+                    }
+                  }
+                  
+                  const discountAmount = calculateDiscount(
+                    cartTotal,
+                    selectedDiscount.type === "flexible" ? 
+                      (flexibleDiscountType === "percentage" ? "percentage" : "fixed_amount") :
+                      selectedDiscount.type,
+                    discountValue
+                  );
+                  const finalTotal = cartTotal - discountAmount;
+                  return (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <span className="text-yellow-400">{selectedDiscount.name}</span>
+                        <span className="text-lg font-semibold text-yellow-400">-{formatCurrency(discountAmount)}</span>
+                      </div>
+                      <div className="border-t border-neutral-700 pt-3 flex justify-between items-center">
+                        <span className="text-white font-medium">Total</span>
+                        <span className="text-3xl font-bold text-green-400">{formatCurrency(finalTotal)}</span>
+                      </div>
+                    </>
+                  );
+                })()}
+                {!selectedDiscount && (
+                  <div className="border-t border-neutral-700 pt-3 flex justify-between items-center">
+                    <span className="text-white font-medium">Total</span>
+                    <span className="text-3xl font-bold text-white">{formatCurrency(cartTotal)}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -4107,6 +4449,18 @@ export default function BarPage() {
         <>
           {/* COLUMNA DE CATEGORÍAS VERTICAL */}
           <div className="w-64 bg-neutral-950 border-r border-neutral-800 flex flex-col overflow-y-auto">
+            {/* Botón Menú Admin */}
+            <div className="p-3 border-b border-neutral-800">
+              <Button
+                onClick={() => setShowAdminMenu(true)}
+                variant="outline"
+                className="w-full bg-neutral-900 border-neutral-700 text-white hover:bg-neutral-800 hover:text-white"
+              >
+                <GearSix className="size-4 mr-2" />
+                Menú Admin
+              </Button>
+            </div>
+            
             {/* Searchbar */}
             <div className="p-4 border-b border-neutral-800">
               <div className="relative">
@@ -4848,6 +5202,242 @@ export default function BarPage() {
             </Button>
             <Button onClick={handleManualStampSubmit} disabled={loadingCard}>
               {loadingCard ? "Procesando..." : "Agregar Sello"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Descuento Flexible */}
+      <Dialog open={showFlexibleDiscountDialog} onOpenChange={setShowFlexibleDiscountDialog}>
+        <DialogContent className="bg-neutral-950 border-neutral-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Seleccionar Descuento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <Label className="text-white">Tipo de Descuento</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant={flexibleDiscountType === "percentage" ? "default" : "outline"}
+                  onClick={() => {
+                    setFlexibleDiscountType("percentage");
+                    setFlexibleDiscountValue(10);
+                  }}
+                  className="h-12"
+                >
+                  Porcentaje
+                </Button>
+                <Button
+                  variant={flexibleDiscountType === "fixed" ? "default" : "outline"}
+                  onClick={() => {
+                    setFlexibleDiscountType("fixed");
+                    setCustomFlexibleAmount("");
+                  }}
+                  className="h-12"
+                >
+                  Monto Fijo
+                </Button>
+              </div>
+            </div>
+
+            {flexibleDiscountType === "percentage" && (
+              <div className="space-y-2">
+                <Label className="text-white">Porcentaje</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[10, 20, 30, 50, 60].map((percent) => (
+                    <Button
+                      key={percent}
+                      variant={flexibleDiscountValue === percent ? "default" : "outline"}
+                      onClick={() => setFlexibleDiscountValue(percent)}
+                      className="h-12 text-lg font-semibold"
+                    >
+                      {percent}%
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {flexibleDiscountType === "fixed" && (
+              <div className="space-y-2">
+                <Label className="text-white">Monto en Pesos</Label>
+                <Input
+                  type="number"
+                  value={customFlexibleAmount}
+                  onChange={(e) => setCustomFlexibleAmount(e.target.value)}
+                  placeholder="Ingresa el monto"
+                  className="bg-neutral-900 border-neutral-700 text-white h-12 text-lg"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+            )}
+
+            <div className="p-3 bg-blue-950 border border-blue-800 rounded-lg">
+              <p className="text-sm text-blue-200">
+                {flexibleDiscountType === "percentage" ? (
+                  <>
+                    Descuento del <strong>{flexibleDiscountValue}%</strong> sobre el subtotal
+                  </>
+                ) : (
+                  <>
+                    Descuento de <strong>${customFlexibleAmount || "0"}</strong> en pesos
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowFlexibleDiscountDialog(false);
+                setSelectedDiscount(null);
+              }}
+              className="bg-neutral-900 border-neutral-700 text-white hover:bg-neutral-800"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                setShowFlexibleDiscountDialog(false);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Aplicar Descuento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo Menú Admin */}
+      <Dialog open={showAdminMenu} onOpenChange={setShowAdminMenu}>
+        <DialogContent className="bg-neutral-950 border-neutral-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Menú Admin</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Button
+              onClick={() => {
+                setShowAdminMenu(false);
+                setShowGuestItemsDialog(true);
+              }}
+              className="w-full h-14 bg-blue-600 hover:bg-blue-700 text-white text-lg"
+            >
+              <Gift className="size-5 mr-2" weight="duotone" />
+              Invitar Productos / Cuenta Invitado
+            </Button>
+          
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo Invitar Productos */}
+      <Dialog open={showGuestItemsDialog} onOpenChange={setShowGuestItemsDialog}>
+        <DialogContent className="bg-neutral-950 border-neutral-800 text-white max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-white">Invitar Productos</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-neutral-400">
+              Selecciona los productos que deseas marcar como invitados. Estos aparecerán en la cuenta con precio $0.
+            </p>
+            
+            {cart.length === 0 ? (
+              <div className="text-center py-8 text-neutral-500">
+                No hay productos en el carrito
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {cart.map((item, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-neutral-900 border border-neutral-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={guestItemsSelection.includes(index)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setGuestItemsSelection([...guestItemsSelection, index]);
+                        } else {
+                          setGuestItemsSelection(guestItemsSelection.filter(i => i !== index));
+                        }
+                      }}
+                      className="h-5 w-5 rounded border-neutral-600"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{item.quantity}x {item.productName}</span>
+                        {item.isGuest && (
+                          <Badge className="bg-yellow-500 text-black text-xs">
+                            Invitado
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-sm text-neutral-400">
+                        {item.isGuest ? (
+                          <span className="line-through">{formatCurrency(item.unitPrice * item.quantity)}</span>
+                        ) : (
+                          formatCurrency(item.unitPrice * item.quantity)
+                        )}
+                      </div>
+                    </div>
+                    {item.isGuest && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const updatedCart = cart.map((cartItem, idx) => {
+                            if (idx === index) {
+                              return { ...cartItem, isGuest: false };
+                            }
+                            return cartItem;
+                          });
+                          setCart(updatedCart);
+                          toast.success("Producto desinvitado");
+                        }}
+                        className="bg-red-900 border-red-700 text-white hover:bg-red-800"
+                      >
+                        <X className="size-4 mr-1" />
+                        Desinvitar
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowGuestItemsDialog(false);
+                setGuestItemsSelection([]);
+              }}
+              className="bg-neutral-900 border-neutral-700 text-white hover:bg-neutral-800"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                // Marcar items seleccionados como invitados
+                const updatedCart = cart.map((item, index) => {
+                  if (guestItemsSelection.includes(index)) {
+                    return { ...item, isGuest: true };
+                  }
+                  return item;
+                });
+                setCart(updatedCart);
+                setShowGuestItemsDialog(false);
+                setGuestItemsSelection([]);
+                toast.success(`${guestItemsSelection.length} producto(s) marcado(s) como invitado`);
+              }}
+              disabled={guestItemsSelection.length === 0}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Gift className="size-4 mr-2" />
+              Marcar como Invitado ({guestItemsSelection.length})
             </Button>
           </DialogFooter>
         </DialogContent>

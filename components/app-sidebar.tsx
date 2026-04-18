@@ -24,6 +24,8 @@ import {
   PlusCircle,
   ClockCounterClockwise,
   Storefront,
+  Tag,
+  Percent,
 } from "@phosphor-icons/react";
 import { BrumaLogo } from "@/components/bruma-logo";
 import {
@@ -105,6 +107,19 @@ const loyaltyNavItems = [
     title: "Clientes Frecuentes",
     url: "/loyalty",
     icon: CreditCard,
+  },
+];
+
+const marketingNavItems = [
+  {
+    title: "Promociones",
+    url: "/promotions",
+    icon: Tag,
+  },
+  {
+    title: "Descuentos",
+    url: "/discounts",
+    icon: Percent,
   },
 ];
 
@@ -218,6 +233,26 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {loyaltyNavItems.map((item) => (
+                <SidebarMenuItem key={item.url}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                    <Link href={item.url}>
+                      <item.icon className="size-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator />
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Marketing</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {marketingNavItems.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <Link href={item.url}>

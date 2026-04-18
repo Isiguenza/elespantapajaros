@@ -639,6 +639,17 @@ export default function CashRegisterPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {order.discountAmount && parseFloat(order.discountAmount) > 0 && (() => {
+                        const discountAmt = parseFloat(order.discountAmount);
+                        const totalAmt = parseFloat(order.total);
+                        const subtotalAmt = totalAmt + discountAmt;
+                        const percentage = Math.round((discountAmt / subtotalAmt) * 100);
+                        return (
+                          <Badge className="bg-yellow-500 text-black font-semibold">
+                            -{percentage}%
+                          </Badge>
+                        );
+                      })()}
                       <div className="text-right">
                         <div className="font-bold text-lg">
                           {formatCurrency(order.total)}
