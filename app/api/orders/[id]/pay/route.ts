@@ -20,7 +20,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId, tip, subtotal: frontendSubtotal } = body;
+    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId, tip, subtotal: frontendSubtotal, discount } = body;
 
     // Get the order
     const order = await db.query.orders.findFirst({
@@ -42,7 +42,7 @@ export async function POST(
     const newTotal = orderSubtotal + tipAmount;
 
     // Mark as paid and delivered for all payment methods (cash, transfer, terminal)
-    console.log(`💰 Marcando orden ${id} como paid + delivered (${paymentMethod}) con propina: $${tipAmount}`);
+    console.log(`💰 Marcando orden ${id} como paid + delivered (${paymentMethod}) con propina: $${tipAmount}, descuento: $${discount || 0}`);
     await db
       .update(orders)
       .set({
@@ -52,6 +52,7 @@ export async function POST(
         subtotal: orderSubtotal.toString(),
         tip: tipAmount.toString(),
         total: newTotal.toString(),
+        discountAmount: discount ? discount.toString() : null,
         loyaltyCardId: loyaltyCardId || null,
         userId: userId || null,
         updatedAt: new Date(),

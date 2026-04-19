@@ -275,6 +275,12 @@ export default function CashRegisterPage() {
         total: parseFloat(item.subtotal || "0")
       }));
 
+      // Calcular descuento si hay
+      const discountData = order.discountAmount && parseFloat(order.discountAmount) > 0 ? {
+        name: order.discountName || "Descuento",
+        amount: Math.round(parseFloat(order.discountAmount))
+      } : undefined;
+
       const printData = {
         customerName: order.customerName || "",
         orderNumber: order.orderNumber?.toString() || "N/A",
@@ -284,7 +290,8 @@ export default function CashRegisterPage() {
         total: parseFloat(order.total || "0"),
         tableNumber: order.tableNumber || "",
         isDelivery: !order.tableId,
-        paymentMethod: order.paymentMethod
+        paymentMethod: order.paymentMethod,
+        discount: discountData
       };
 
       const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.160:3001";
@@ -641,9 +648,8 @@ export default function CashRegisterPage() {
                     <div className="flex items-center gap-2">
                       {order.discountAmount && parseFloat(order.discountAmount) > 0 && (() => {
                         const discountAmt = parseFloat(order.discountAmount);
-                        const totalAmt = parseFloat(order.total);
-                        const subtotalAmt = totalAmt + discountAmt;
-                        const percentage = Math.round((discountAmt / subtotalAmt) * 100);
+                        const subtotalAmt = parseFloat(order.subtotal || "0");
+                        const percentage = subtotalAmt > 0 ? Math.round((discountAmt / subtotalAmt) * 100) : 0;
                         return (
                           <Badge className="bg-yellow-500 text-black font-semibold">
                             -{percentage}%

@@ -13,7 +13,7 @@ class SoundPlayer: ObservableObject {
     static let shared = SoundPlayer()
     
     private var audioPlayer: AVAudioPlayer?
-    @Published var isEnabled: Bool = true
+    @Published var isEnabled: Bool = true // Always enabled
     
     private init() {
         setupAudioSession()
@@ -22,34 +22,35 @@ class SoundPlayer: ObservableObject {
     
     private func setupAudioSession() {
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            // Configurar para reproducción con volumen máximo
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
             try AVAudioSession.sharedInstance().setActive(true)
+            
+            // Forzar volumen del sistema al máximo (si es posible)
+            try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
         } catch {
             print("❌ Error setting up audio session: \(error)")
         }
     }
     
     private func loadSound() {
-        guard let soundURL = Bundle.main.url(forResource: "notification_sound", withExtension: "wav") else {
+        guard let soundURL = Bundle.main.url(forResource: "chime_alert", withExtension: "wav") else {
             print("❌ Sound file not found")
             return
         }
         
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
+            audioPlayer?.volume = 1.0 // Volumen al máximo
             audioPlayer?.prepareToPlay()
-            print("✅ Sound loaded successfully")
+            print("✅ Sound loaded successfully (chime_alert.wav)")
         } catch {
             print("❌ Error loading sound: \(error)")
         }
     }
     
     func playNotification() {
-        guard isEnabled else {
-            print("🔇 Sound is disabled")
-            return
-        }
-        
+        // Always play sound, no check for isEnabled
         guard let player = audioPlayer else {
             print("❌ Audio player not initialized")
             return
@@ -58,10 +59,11 @@ class SoundPlayer: ObservableObject {
         // Vibrate device
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
         
-        // Play sound
+        // Forzar volumen al máximo antes de reproducir
+        player.volume = 1.0
         player.currentTime = 0
         player.play()
-        print("🔔 Playing notification sound")
+        print("🔔 Playing chime_alert.wav at MAX VOLUME (forced)")
     }
     
     func toggleSound() {

@@ -299,16 +299,28 @@ export default function OrderHistoryPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          {(order as any).discountAmount && parseFloat((order as any).discountAmount) > 0 && (() => {
-                            const discountAmt = parseFloat((order as any).discountAmount);
-                            const totalAmt = parseFloat(order.total || "0");
-                            const subtotalAmt = totalAmt + discountAmt;
-                            const percentage = Math.round((discountAmt / subtotalAmt) * 100);
-                            return (
-                              <Badge className="bg-yellow-500 text-black font-semibold">
-                                -{percentage}%
-                              </Badge>
-                            );
+                          {(() => {
+                            // Calcular descuento: puede venir guardado o calcularlo de items
+                            let discountAmt = parseFloat((order as any).discountAmount || "0");
+                            const subtotalAmt = parseFloat((order as any).subtotal || "0");
+                            
+                            // Si no hay descuento guardado, calcularlo de los items
+                            if (discountAmt === 0 && order.items && order.items.length > 0) {
+                              const itemsTotal = order.items.reduce((sum: number, item: any) => {
+                                return sum + parseFloat(item.subtotal || "0");
+                              }, 0);
+                              discountAmt = itemsTotal - subtotalAmt;
+                            }
+                            
+                            if (discountAmt > 0) {
+                              const percentage = subtotalAmt > 0 ? Math.round((discountAmt / subtotalAmt) * 100) : 0;
+                              return (
+                                <Badge className="bg-yellow-500 text-black font-semibold">
+                                  -{percentage}%
+                                </Badge>
+                              );
+                            }
+                            return null;
                           })()}
                           <div className="text-right">
                             <span className="text-lg font-bold">
@@ -401,13 +413,25 @@ export default function OrderHistoryPage() {
                 )}
                 {selectedOrder.items?.map((item) => {
                   const isVoided = (item as any).voided;
+                  const promotionName = (item as any).promotionName;
+                  const promotionDiscount = parseFloat((item as any).promotionDiscount || "0");
                   return (
                     <div
                       key={item.id}
                       className={`flex justify-between text-sm ${isVoided ? 'line-through opacity-50' : ''}`}
                     >
-                      <div>
+                      <div className="flex-1">
                         <span>{item.quantity}x {item.productName}</span>
+                        {promotionName && (
+                          <p className="text-xs text-blue-400 no-underline flex items-center gap-1">
+                            <span>🎁 {promotionName}</span>
+                            {promotionDiscount > 0 && (
+                              <span className="text-yellow-600 font-semibold">
+                                (-{formatCurrency(promotionDiscount)})
+                              </span>
+                            )}
+                          </p>
+                        )}
                         {isVoided && (item as any).voidReason && (
                           <p className="text-xs text-red-400 no-underline">
                             Eliminado: {(item as any).voidReason}
@@ -424,6 +448,7 @@ export default function OrderHistoryPage() {
                   const subtotal = parseFloat((selectedOrder as any).subtotal || "0");
                   const tip = parseFloat((selectedOrder as any).tip || "0");
                   const total = parseFloat(selectedOrder.total || "0");
+                  const discount = parseFloat((selectedOrder as any).discountAmount || "0");
                   const isPlatformDelivery = selectedOrder.paymentMethod === 'platform_delivery';
                   const platformCommission = (selectedOrder as any).platformCommission ? parseFloat((selectedOrder as any).platformCommission) : 0;
                   const originalTotal = (selectedOrder as any).originalTotal ? parseFloat((selectedOrder as any).originalTotal) : 0;
@@ -477,24 +502,35 @@ export default function OrderHistoryPage() {
                         </div>
                       )}
                       
-                      {subtotal > 0 && tip > 0 && (
+                      {subtotal > 0 && (
                         <>
                           <div className="flex justify-between border-t pt-2 text-sm">
                             <span>Subtotal</span>
                             <span>{formatCurrency(subtotal)}</span>
                           </div>
-                          <div className="flex justify-between text-sm text-blue-400">
-                            <span>Propina {(() => {
-                              if (splitData) return "";
-                              if (subtotal > 0 && tip > 0) {
-                                const pct = Math.round((tip / subtotal) * 100);
-                                if ([10, 15, 20].includes(pct)) return `(${pct}%)`;
-                                return "(Otro)";
-                              }
-                              return "";
-                            })()}</span>
-                            <span>{formatCurrency(tip)}</span>
-                          </div>
+                          {discount > 0 && (() => {
+                            const percentage = subtotal > 0 ? Math.round((discount / subtotal) * 100) : 0;
+                            return (
+                              <div className="flex justify-between text-sm text-yellow-600 font-semibold">
+                                <span>Descuento {percentage}%</span>
+                                <span>-{formatCurrency(discount)}</span>
+                              </div>
+                            );
+                          })()}
+                          {tip > 0 && (
+                            <div className="flex justify-between text-sm text-blue-400">
+                              <span>Propina {(() => {
+                                if (splitData) return "";
+                                if (subtotal > 0 && tip > 0) {
+                                  const pct = Math.round((tip / subtotal) * 100);
+                                  if ([10, 15, 20].includes(pct)) return `(${pct}%)`;
+                                  return "(Otro)";
+                                }
+                                return "";
+                              })()}</span>
+                              <span>{formatCurrency(tip)}</span>
+                            </div>
+                          )}
                         </>
                       )}
                       

@@ -22,6 +22,7 @@ struct Order: Codable, Identifiable {
     let updatedAt: String
     let items: [OrderItem]?
     let table: Table?
+    let preparationTime: Int? // Tiempo de preparación en minutos
 }
 
 // MARK: - OrderItem

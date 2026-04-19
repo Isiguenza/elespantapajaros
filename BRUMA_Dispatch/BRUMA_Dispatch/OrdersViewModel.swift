@@ -16,8 +16,10 @@ class OrdersViewModel: ObservableObject {
     @Published var expandedOrderIds: Set<String> = []
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var currentTime = Date() // Para forzar actualización del timer
     
     private var timer: Timer?
+    private var uiTimer: Timer?
     private let soundPlayer = SoundPlayer.shared
     
     init() {
@@ -29,21 +31,36 @@ class OrdersViewModel: ObservableObject {
     deinit {
         timer?.invalidate()
         timer = nil
+        uiTimer?.invalidate()
+        uiTimer = nil
     }
     
     // Start polling for orders every 3 seconds
     func startPolling() async {
         await fetchOrders()
+        
+        // Timer para actualizar órdenes cada 3 segundos
         timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.fetchOrders()
             }
         }
+        RunLoop.main.add(timer!, forMode: .common)
+        
+        // Timer para actualizar UI cada segundo (para el reloj)
+        uiTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.currentTime = Date()
+            }
+        }
+        RunLoop.main.add(uiTimer!, forMode: .common)
     }
     
     func stopPolling() {
         timer?.invalidate()
         timer = nil
+        uiTimer?.invalidate()
+        uiTimer = nil
     }
     
     // Fetch orders from API
@@ -55,13 +72,21 @@ class OrdersViewModel: ObservableObject {
             // Check for new orders
             let hasNewOrder = newOrders.contains { !previousOrderIds.contains($0.id) }
             
-            if hasNewOrder && !previousOrderIds.isEmpty {
+            // Play sound for new orders (including first order)
+            if hasNewOrder {
                 print("🔔 New order detected!")
                 soundPlayer.playNotification()
             }
             
             previousOrderIds = newOrderIds
-            orders = newOrders
+            // Ordenar por fecha de creación (más recientes primero) para evitar saltos
+            orders = newOrders.sorted { order1, order2 in
+                guard let date1 = ISO8601DateFormatter().date(from: order1.createdAt),
+                      let date2 = ISO8601DateFormatter().date(from: order2.createdAt) else {
+                    return false
+                }
+                return date1 > date2
+            }
             errorMessage = nil
             
         } catch {
@@ -93,35 +118,68 @@ class OrdersViewModel: ObservableObject {
     
     // Get order urgency based on elapsed time
     func getOrderUrgency(order: Order) -> OrderUrgency {
-        guard let createdDate = ISO8601DateFormatter().date(from: order.createdAt) else {
+        guard let createdDate = parseDate(order.createdAt) else {
             return .normal
         }
         
         let elapsed = Date().timeIntervalSince(createdDate)
         let minutes = Int(elapsed / 60)
         
-        if minutes > 10 {
-            return .urgent
-        } else if minutes > 7 {
-            return .warning
-        } else if minutes > 4 {
-            return .attention
+        if minutes > 15 {
+            return .urgent      // Rojo: >15 min
+        } else if minutes > 10 {
+            return .warning     // Amarillo: 10-15 min
         } else {
-            return .normal
+            return .normal      // Verde: 0-10 min
         }
     }
     
     // Get elapsed time string
     func getElapsedTime(order: Order) -> String {
-        guard let createdDate = ISO8601DateFormatter().date(from: order.createdAt) else {
+        guard let createdDate = parseDate(order.createdAt) else {
             return "0m 0s"
         }
         
-        let elapsed = Int(Date().timeIntervalSince(createdDate))
+        let elapsed = Int(currentTime.timeIntervalSince(createdDate))
         let minutes = elapsed / 60
         let seconds = elapsed % 60
         
         return "\(minutes)m \(seconds)s"
+    }
+    
+    // Robust date parser for multiple formats
+    func parseDate(_ dateString: String) -> Date? {
+        let formats = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.SSS",
+            "yyyy-MM-dd HH:mm:ss",
+        ]
+        
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(identifier: "UTC")
+        
+        for format in formats {
+            df.dateFormat = format
+            if let date = df.date(from: dateString) {
+                return date
+            }
+        }
+        
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: dateString) {
+            return date
+        }
+        
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: dateString)
     }
     
     // Parse custom modifiers JSON

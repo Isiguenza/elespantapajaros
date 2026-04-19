@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct OrderCardView: View {
     let order: Order
@@ -18,52 +19,82 @@ struct OrderCardView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header with urgency color
-            HStack {
-                Text("#\(order.orderNumber)")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
-                
-                Spacer()
-                
-                Text(elapsedTime)
-                    .font(.system(size: 14))
-                    .foregroundColor(.white)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(urgencyColor(urgency))
-            
-            VStack(alignment: .leading, spacing: 12) {
-                // Table or Takeout
-                HStack(spacing: 4) {
-                    if let table = order.table {
-                        Text("Mesa \(table.number)")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.yellow)
-                    } else {
-                        Text("Para Llevar")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.green)
+            // Header con color según urgencia
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    // Mesa o Para Llevar en formato pill
+                    HStack(spacing: 8) {
+                        if let table = order.table {
+                            Text("Mesa \(table.number)")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.2))
+                                .clipShape(Capsule())
+                        } else {
+                            Text("Para Llevar")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.2))
+                                .clipShape(Capsule())
+                        }
+                        
+                        // Nombre del cliente si existe (para llevar)
+                        if let customerName = order.customerName, !customerName.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 11))
+                                Text(customerName)
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.black.opacity(0.2))
+                            .clipShape(Capsule())
+                        }
                     }
                     
-                    if let customerName = order.customerName {
-                        Text("• \(customerName)")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
+                    Spacer()
+                    
+                    // Tiempo transcurrido con ícono - usando TimelineView para actualización en tiempo real
+                    TimelineView(.periodic(from: Date(), by: 1.0)) { context in
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 14))
+                            Text(calculateElapsedTime(from: order.createdAt, at: context.date))
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
                     }
                 }
                 
+                // Tiempo de preparación si existe
+                if let prepTime = order.preparationTime {
+                    Text("\(prepTime) min")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+            }
+            .padding(16)
+            .background(urgencyColor(urgency))
+            
+            VStack(alignment: .leading, spacing: 12) {
+                
                 // Items
-                let activeItems = order.items?.filter { $0.voided != true } ?? []
+                let activeItems = (order.items?.filter { $0.voided != true } ?? [])
+                    .sorted { $0.id < $1.id } // Ordenar por ID para estabilidad
                 let visibleItems = isExpanded ? activeItems : Array(activeItems.prefix(3))
                 
                 VStack(alignment: .leading, spacing: 12) {
-                    // Separate beverages and food
+                    // Separate beverages and food - siempre mismo orden
                     let beverages = visibleItems.filter { $0.product?.category?.isBeverage == true }
                     let food = visibleItems.filter { $0.product?.category?.isBeverage != true }
                     
-                    // Beverages section
+                    // Beverages section - siempre primero
                     if !beverages.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 6) {
@@ -78,13 +109,13 @@ struct OrderCardView: View {
                             .background(Color.cyan.opacity(0.1))
                             .cornerRadius(8)
                             
-                            ForEach(beverages) { item in
+                            ForEach(beverages, id: \.id) { item in
                                 OrderItemView(item: item, viewModel: viewModel)
                             }
                         }
                     }
                     
-                    // Food items grouped by course
+                    // Food items grouped by course - siempre después
                     if !food.isEmpty {
                         let courseGroups = Dictionary(grouping: food) { $0.course ?? 1 }
                         let sortedCourses = courseGroups.keys.sorted()
@@ -104,7 +135,7 @@ struct OrderCardView: View {
                                 .cornerRadius(8)
                             }
                             
-                            ForEach(courseGroups[course] ?? []) { item in
+                            ForEach((courseGroups[course] ?? []).sorted { $0.id < $1.id }, id: \.id) { item in
                                 OrderItemView(item: item, viewModel: viewModel)
                             }
                         }
@@ -133,27 +164,72 @@ struct OrderCardView: View {
                     
                     SlideToConfirmView(onConfirm: onMarkAsReady)
                 }
+                .padding(.top, 16)
             }
             .padding(16)
         }
-        .background(Color(UIColor.systemGray6))
+        .background(Color(red: 0.15, green: 0.15, blue: 0.15))
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-        )
+    }
+    
+    private func calculateElapsedTime(from createdAtString: String, at currentDate: Date) -> String {
+        guard let createdDate = parseDate(createdAtString) else {
+            print("⚠️ Could not parse date: '\(createdAtString)'")
+            return "0m 0s"
+        }
+        
+        let elapsed = max(0, Int(currentDate.timeIntervalSince(createdDate)))
+        let minutes = elapsed / 60
+        let seconds = elapsed % 60
+        
+        return "\(minutes)m \(seconds)s"
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        let formats = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.SSS",
+            "yyyy-MM-dd HH:mm:ss",
+        ]
+        
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(identifier: "UTC")
+        
+        for format in formats {
+            df.dateFormat = format
+            if let date = df.date(from: dateString) {
+                return date
+            }
+        }
+        
+        // Último intento con ISO8601DateFormatter
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: dateString) {
+            return date
+        }
+        
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: dateString)
     }
     
     private func urgencyColor(_ urgency: OrderUrgency) -> Color {
         switch urgency {
         case .normal:
-            return Color.gray
-        case .attention:
-            return Color.yellow
+            return Color(red: 0.2, green: 0.7, blue: 0.4) // Verde: 0-10 min
         case .warning:
-            return Color.orange
+            return Color(red: 1.0, green: 0.8, blue: 0.2) // Amarillo: 10-15 min
         case .urgent:
-            return Color.red
+            return Color(red: 0.8, green: 0.3, blue: 0.3) // Rojo: >15 min
+        case .attention:
+            return Color.gray // No usado
         }
     }
 }
@@ -166,18 +242,18 @@ struct OrderItemView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // Quantity badge
-            Text("\(item.quantity)")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.white)
-                .frame(width: 28, height: 28)
-                .background(Color.blue)
+            Text("\(item.quantity)x")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.black)
+                .frame(width: 32, height: 32)
+                .background(Color.white)
                 .clipShape(Circle())
             
             VStack(alignment: .leading, spacing: 4) {
                 // Product name
                 Text(item.productName)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.primary)
+                    .foregroundColor(.white)
                 
                 // Frosting
                 if let frosting = item.frostingName {
@@ -250,7 +326,7 @@ struct SlideToConfirmView: View {
     @State private var isConfirmed = false
     
     private let buttonWidth: CGFloat = 60
-    private let trackHeight: CGFloat = 50
+    private let trackHeight: CGFloat = 60
     
     var body: some View {
         GeometryReader { geometry in
@@ -258,12 +334,12 @@ struct SlideToConfirmView: View {
             
             ZStack(alignment: .leading) {
                 // Track background
-                RoundedRectangle(cornerRadius: 25)
+                RoundedRectangle(cornerRadius: 30)
                     .fill(Color.green.opacity(0.2))
                     .frame(height: trackHeight)
                 
                 // Progress indicator
-                RoundedRectangle(cornerRadius: 25)
+                RoundedRectangle(cornerRadius: 30)
                     .fill(Color.green.opacity(0.3))
                     .frame(width: offset + buttonWidth, height: trackHeight)
                 

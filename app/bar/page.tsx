@@ -1178,49 +1178,35 @@ export default function BarPage() {
     try {
       let orderId: string;
       
-      // Si ya existe una orden, agregar items a esa orden
-      if (currentOrderId) {
-        console.log("📝 Agregando", pendingItems.length, "items a orden existente:", currentOrderId);
-        
-        const res = await fetch(`/api/orders/${currentOrderId}/items`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: itemsData }),
-        });
+      // SIEMPRE crear una nueva orden cuando se envía a cocina
+      console.log("🆕 Creando nueva orden con", pendingItems.length, "items");
+      const orderData = {
+        tableId: selectedTable?.id || null,
+        items: itemsData,
+        status: "preparing",
+        paymentMethod: null,
+        loyaltyCardId: null,
+        customerName: customerName || null,
+      };
 
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || "Error adding items to order");
-        }
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderData),
+      });
 
-        console.log("✅ Items agregados a orden existente");
-        orderId = currentOrderId;
-      } else {
-        // Si NO existe orden, crear una nueva
-        console.log("🆕 Creando nueva orden con", pendingItems.length, "items");
-        const orderData = {
-          tableId: selectedTable?.id || null,
-          items: itemsData,
-          status: "preparing",
-          paymentMethod: null,
-          loyaltyCardId: null,
-          customerName: customerName || null,
-        };
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Error creating order");
+      }
 
-        const res = await fetch("/api/orders", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(orderData),
-        });
-
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || "Error creating order");
-        }
-
-        const createdOrder = await res.json();
-        console.log("✅ Orden creada:", createdOrder.id);
-        orderId = createdOrder.id;
+      const createdOrder = await res.json();
+      console.log("✅ Nueva orden creada:", createdOrder.id);
+      orderId = createdOrder.id;
+      
+      // Si ya había un orderId previo, mantenerlo en el carrito para consolidar al pagar
+      // pero NO lo usamos como currentOrderId para evitar agregar a órdenes en preparación
+      if (!currentOrderId) {
         setCurrentOrderId(orderId);
       }
       
@@ -2136,7 +2122,7 @@ export default function BarPage() {
       // Calcular propina
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
-        : (cartTotal * tipPercentage / 100);
+        : (cartTotalWithDiscount * tipPercentage / 100);
       
       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
         method: "POST",
@@ -2147,7 +2133,8 @@ export default function BarPage() {
           loyaltyStamps: 1,
           userId: employeeId,
           tip: tipAmount,
-          subtotal: cartTotal,
+          subtotal: cartTotalWithDiscount,
+          discount: totalDiscount,
         }),
       });
       if (!res.ok) {
@@ -2183,7 +2170,7 @@ export default function BarPage() {
       // Calcular propina
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
-        : (cartTotal * tipPercentage / 100);
+        : (cartTotalWithDiscount * tipPercentage / 100);
       
       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
         method: "POST",
@@ -2194,7 +2181,8 @@ export default function BarPage() {
           loyaltyStamps: 1,
           userId: employeeId,
           tip: tipAmount,
-          subtotal: cartTotal,
+          subtotal: cartTotalWithDiscount,
+          discount: totalDiscount,
         }),
       });
       if (!res.ok) {
@@ -2282,10 +2270,24 @@ export default function BarPage() {
       const subtotal = Array.from(seatGroups.values())
         .flatMap(g => Array.from(g.values()))
         .reduce((sum, i) => sum + i.total, 0);
+      
+      // Calcular descuento si hay
+      const discountData = selectedDiscount ? {
+        name: selectedDiscount.name,
+        amount: Math.round(calculateDiscount(
+          subtotal,
+          selectedDiscount.type,
+          parseFloat(selectedDiscount.value.toString())
+        ))
+      } : undefined;
+      
+      const discountAmount = discountData?.amount || 0;
+      const subtotalWithDiscount = subtotal - discountAmount;
+      
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
-        : (cartTotal * tipPercentage / 100);
-      const total = subtotal + tipAmount;
+        : (subtotalWithDiscount * tipPercentage / 100);
+      const total = subtotalWithDiscount + tipAmount;
 
       // Preparar datos para la impresora
       const seatKeys = Array.from(seatGroups.keys()).sort((a, b) => {
@@ -2312,16 +2314,6 @@ export default function BarPage() {
           isGuest: item.isGuest
         }));
       }
-
-      // Calcular descuento si hay
-      const discountData = selectedDiscount ? {
-        name: selectedDiscount.name,
-        amount: Math.round(calculateDiscount(
-          subtotal,
-          selectedDiscount.type,
-          parseFloat(selectedDiscount.value.toString())
-        ))
-      } : undefined;
 
       // Enviar a impresora ESC/POS
       const printData: any = {
@@ -2511,7 +2503,7 @@ export default function BarPage() {
       // Calcular propina
       const tipAmount = showCustomTip 
         ? parseFloat(customTip) || 0 
-        : (cartTotal * tipPercentage / 100);
+        : (cartTotalWithDiscount * tipPercentage / 100);
       
       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
         method: "POST",
@@ -2522,7 +2514,8 @@ export default function BarPage() {
           loyaltyStamps: 1,
           userId: employeeId,
           tip: tipAmount,
-          subtotal: cartTotal,
+          subtotal: cartTotalWithDiscount,
+          discount: totalDiscount,
         }),
       });
       if (!res.ok) {
@@ -2611,11 +2604,41 @@ export default function BarPage() {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(amount);
 
-  const cartTotal = cart.reduce((sum, item) => {
-    // Los items invitados no suman al total
+  // Calcular subtotal sin descuentos
+  const cartSubtotalBeforeDiscounts = cart.reduce((sum, item) => {
     if (item.isGuest) return sum;
     return sum + (item.unitPrice * item.quantity);
   }, 0);
+  
+  // Calcular descuento total de promociones
+  const totalPromotionDiscount = cart.reduce((sum, item) => {
+    if (item.isGuest) return sum;
+    return sum + (item.promotionDiscount || 0);
+  }, 0);
+  
+  // Subtotal después de promociones
+  const cartTotal = cartSubtotalBeforeDiscounts - totalPromotionDiscount;
+  
+  // Aplicar descuento flexible si existe
+  const cartSubtotal = cartTotal;
+  const flexibleDiscountAmount = selectedDiscount 
+    ? calculateDiscount(cartSubtotal, selectedDiscount.type, parseFloat(selectedDiscount.value.toString()))
+    : 0;
+  const cartTotalWithDiscount = cartSubtotal - flexibleDiscountAmount;
+  
+  // Descuento total (promociones + flexible)
+  const totalDiscount = totalPromotionDiscount + flexibleDiscountAmount;
+  
+  // Debug logs
+  if (totalDiscount > 0) {
+    console.log('💰 Descuentos:', {
+      promociones: totalPromotionDiscount,
+      flexible: flexibleDiscountAmount,
+      total: totalDiscount,
+      subtotalOriginal: cartSubtotalBeforeDiscounts,
+      subtotalConDescuento: cartTotalWithDiscount
+    });
+  }
 
   // Dashboard de bienvenida
   if (showDashboard) {
@@ -2624,7 +2647,16 @@ export default function BarPage() {
         <div className="w-full max-w-md p-8 bg-neutral-900 rounded-lg shadow-2xl border border-neutral-800 flex flex-col items-center gap-6">
           {/* Header con logo/titulo */}
           <div className="text-center mb-4">
-            <h1 className="text-3xl font-bold text-white mb-2">BRUMA Marisquería</h1>
+            <img 
+              src="/logos/LogoBruma.png" 
+              alt="BRUMA Marisquería" 
+              className="h-16 mx-auto mb-4"
+              onError={(e) => {
+                console.error('Error cargando LogoBruma.png');
+                console.log('Intentando cargar desde:', e.currentTarget.src);
+              }}
+              onLoad={() => console.log('LogoBruma.png cargado exitosamente')}
+            />
             <div className="w-16 h-1 bg-blue-600 mx-auto rounded-full"></div>
           </div>
 
@@ -4069,7 +4101,7 @@ export default function BarPage() {
               <CardContent className="p-6 space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-neutral-400">Subtotal</span>
-                  <span className="text-2xl font-bold text-white">{formatCurrency(cartTotal)}</span>
+                  <span className="text-2xl font-bold text-white">{formatCurrency(cartSubtotal)}</span>
                 </div>
                 {selectedDiscount && (() => {
                   let discountValue = parseFloat(selectedDiscount.value.toString());
@@ -4214,13 +4246,13 @@ export default function BarPage() {
 
             {/* Total con propina */}
             {(() => {
-              const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
-              const totalWithTip = cartTotal + tipAmt;
+              const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotalWithDiscount * tipPercentage / 100;
+              const totalWithTip = cartTotalWithDiscount + tipAmt;
               return (
                 <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 space-y-2">
                   <div className="flex justify-between text-sm text-neutral-400">
                     <span>Subtotal:</span>
-                    <span>{formatCurrency(cartTotal)}</span>
+                    <span>{formatCurrency(cartTotalWithDiscount)}</span>
                   </div>
                   {tipAmt > 0 && (
                     <div className="flex justify-between text-sm text-blue-400">
@@ -4315,8 +4347,8 @@ export default function BarPage() {
                     autoFocus
                   />
                   {(() => {
-                    const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
-                    const totalWithTip = cartTotal + tipAmt;
+                    const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotalWithDiscount * tipPercentage / 100;
+                    const totalWithTip = cartTotalWithDiscount + tipAmt;
                     return parseFloat(cashReceived) > 0 ? (
                       <div className="flex justify-between rounded-lg bg-neutral-950 p-3">
                         <span className="text-white">Cambio</span>
@@ -4336,8 +4368,8 @@ export default function BarPage() {
                 size="lg"
                 className="w-full h-14 text-lg font-semibold"
                 disabled={paymentMethod === "cash" && (() => {
-                  const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
-                  return parseFloat(cashReceived) < cartTotal + tipAmt;
+                  const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotalWithDiscount * tipPercentage / 100;
+                  return parseFloat(cashReceived) < cartTotalWithDiscount + tipAmt;
                 })()}
                 onClick={() => setPaymentStep("confirmation")}
               >
@@ -4363,14 +4395,14 @@ export default function BarPage() {
 
             {/* Resumen final */}
             {(() => {
-              const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100;
-              const totalWithTip = cartTotal + tipAmt;
+              const tipAmt = showCustomTip ? parseFloat(customTip) || 0 : cartTotalWithDiscount * tipPercentage / 100;
+              const totalWithTip = cartTotalWithDiscount + tipAmt;
               return (
                 <Card className="bg-neutral-900 border-neutral-800">
                   <CardContent className="p-6 space-y-3">
                     <div className="flex justify-between text-sm text-neutral-400">
                       <span>Subtotal:</span>
-                      <span>{formatCurrency(cartTotal)}</span>
+                      <span>{formatCurrency(cartTotalWithDiscount)}</span>
                     </div>
                     {tipAmt > 0 && (
                       <div className="flex justify-between text-sm text-blue-400">
@@ -4432,7 +4464,7 @@ export default function BarPage() {
                   {paymentMethod === "terminal_mercadopago" && "Pago con terminal confirmado"}
                 </p>
                 <p className="text-3xl font-bold text-white mt-4">{formatCurrency(
-                  cartTotal + (showCustomTip ? parseFloat(customTip) || 0 : cartTotal * tipPercentage / 100)
+                  cartTotalWithDiscount + (showCustomTip ? parseFloat(customTip) || 0 : cartTotalWithDiscount * tipPercentage / 100)
                 )}</p>
               </CardContent>
             </Card>

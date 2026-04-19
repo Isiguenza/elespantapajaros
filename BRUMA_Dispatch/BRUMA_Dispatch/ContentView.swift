@@ -11,53 +11,33 @@ struct ContentView: View {
     @StateObject private var viewModel = OrdersViewModel()
     @StateObject private var soundPlayer = SoundPlayer.shared
     
-    private let columns = [
-        GridItem(.flexible(), spacing: 16),
-        GridItem(.flexible(), spacing: 16)
-    ]
-    
     var body: some View {
         NavigationView {
             ZStack {
                 Color.black.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // Header
-                    VStack(spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Monitor de Cocina")
-                                    .font(.system(size: 28, weight: .bold))
-                                    .foregroundColor(.white)
-                                
-                                Text("\(viewModel.orders.count) \(viewModel.orders.count == 1 ? "orden" : "órdenes") en preparación")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.gray)
-                            }
-                            
-                            Spacer()
-                            
-                            // Sound toggle button
-                            Button(action: {
-                                soundPlayer.toggleSound()
-                            }) {
-                                Image(systemName: soundPlayer.isEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.white)
-                                    .frame(width: 50, height: 50)
-                                    .background(soundPlayer.isEnabled ? Color.green : Color.gray)
-                                    .clipShape(Circle())
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                        .padding(.bottom, 16)
+                    // Header - Dark Mode
+                    HStack(spacing: 16) {
+                        Text("Comandera")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(.white)
+                        
+                        Text("Cocina")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color(red: 1.0, green: 0.3, blue: 0.2))
+                            .cornerRadius(8)
+                        
+                        Spacer()
                     }
-                    .background(Color(UIColor.systemGray6))
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                    .background(Color(red: 0.1, green: 0.1, blue: 0.1))
                     
-                    Divider()
-                    
-                    // Orders Grid
+                    // Orders horizontal scroll
                     if viewModel.orders.isEmpty {
                         VStack(spacing: 16) {
                             Spacer()
@@ -66,14 +46,14 @@ struct ContentView: View {
                                 .foregroundColor(.green)
                             Text("No hay órdenes pendientes")
                                 .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(.gray)
+                                .foregroundColor(.white.opacity(0.6))
                             Spacer()
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        ScrollView {
-                            LazyVGrid(columns: columns, spacing: 16) {
-                                ForEach(viewModel.orders) { order in
+                        ScrollView(.vertical, showsIndicators: true) {
+                            BentoGridLayout(spacing: 16) {
+                                ForEach(viewModel.orders, id: \.id) { order in
                                     OrderCardView(
                                         order: order,
                                         urgency: viewModel.getOrderUrgency(order: order),
@@ -94,7 +74,7 @@ struct ContentView: View {
                                     )
                                 }
                             }
-                            .padding(16)
+                            .padding(20)
                         }
                     }
                 }

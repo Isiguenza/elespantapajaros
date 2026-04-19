@@ -48,6 +48,23 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         isOpen ? "w-60" : "w-16"
       )}
     >
+      {/* Logo */}
+      <div className="p-4 border-b border-neutral-800">
+        {isOpen ? (
+          <img 
+            src="/logos/horiz.png" 
+            alt="BRUMA" 
+            className="h-8 w-auto"
+          />
+        ) : (
+          <img 
+            src="/logos/isotipo.png" 
+            alt="BRUMA" 
+            className="h-8 w-auto mx-auto"
+          />
+        )}
+      </div>
+
       {/* Toggle button */}
       <Button
         variant="ghost"
@@ -63,7 +80,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       </Button>
 
       {/* Menu items */}
-      <nav className="flex-1 pt-16 px-2 space-y-2">
+      <nav className="flex-1 pt-4 px-2 space-y-2">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeView === item.id;
