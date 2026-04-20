@@ -71,6 +71,13 @@
       "when": 1776632136856,
       "tag": "0009_noisy_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1776652314364,
+      "tag": "0010_last_red_ghost",
+      "breakpoints": true
     }
   ]
 }

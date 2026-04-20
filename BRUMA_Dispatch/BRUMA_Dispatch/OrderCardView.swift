@@ -8,6 +8,11 @@
 import SwiftUI
 import Combine
 
+// MARK: - Item Batch (grupo de items enviados al mismo tiempo)
+struct ItemBatch {
+    let items: [OrderItem]
+}
+
 struct OrderCardView: View {
     let order: Order
     let urgency: OrderUrgency
@@ -86,69 +91,107 @@ struct OrderCardView: View {
                 
                 // Items
                 let activeItems = (order.items?.filter { $0.voided != true } ?? [])
-                    .sorted { $0.id < $1.id } // Ordenar por ID para estabilidad
-                let visibleItems = isExpanded ? activeItems : Array(activeItems.prefix(3))
+                    .sorted { $0.id < $1.id }
                 
-                VStack(alignment: .leading, spacing: 12) {
-                    // Separate beverages and food - siempre mismo orden
-                    let beverages = visibleItems.filter { $0.product?.category?.isBeverage == true }
-                    let food = visibleItems.filter { $0.product?.category?.isBeverage != true }
-                    
-                    // Beverages section - siempre primero
-                    if !beverages.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "wineglass")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text("Bebidas")
-                                    .font(.system(size: 12, weight: .bold))
-                            }
-                            .foregroundColor(.cyan)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.cyan.opacity(0.1))
-                            .cornerRadius(8)
-                            
-                            ForEach(beverages, id: \.id) { item in
-                                OrderItemView(item: item, viewModel: viewModel)
-                            }
+                // Agrupar items por envío (batch) usando createdAt
+                let batches = groupItemsByBatch(activeItems)
+                let visibleBatches = isExpanded ? batches : [batches.first].compactMap { $0 }
+                let totalItems = activeItems.count
+                let firstBatchCount = batches.first?.items.count ?? 0
+                
+                ForEach(Array(visibleBatches.enumerated()), id: \.offset) { batchIndex, batch in
+                    // Separador para envíos nuevos (no el primero)
+                    if batchIndex > 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("NUEVO ENVÍO")
+                                .font(.system(size: 12, weight: .bold))
                         }
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.15))
+                        .cornerRadius(8)
                     }
                     
-                    // Food items grouped by course - siempre después
-                    if !food.isEmpty {
-                        let courseGroups = Dictionary(grouping: food) { $0.course ?? 1 }
-                        let sortedCourses = courseGroups.keys.sorted()
+                    // Render items del batch
+                    let visibleItems = batchIndex == 0 && !isExpanded ? Array(batch.items.prefix(3)) : batch.items
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        let beverages = visibleItems.filter { $0.product?.category?.isBeverage == true }
+                        let food = visibleItems.filter { $0.product?.category?.isBeverage != true }
                         
-                        ForEach(sortedCourses, id: \.self) { course in
-                            if sortedCourses.count > 1 {
+                        if !beverages.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "clock")
+                                    Image(systemName: "wineglass")
                                         .font(.system(size: 12, weight: .bold))
-                                    Text("Tiempo \(course)")
+                                    Text("Bebidas")
                                         .font(.system(size: 12, weight: .bold))
                                 }
-                                .foregroundColor(.green)
+                                .foregroundColor(.cyan)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Color.green.opacity(0.1))
+                                .background(Color.cyan.opacity(0.1))
                                 .cornerRadius(8)
+                                
+                                ForEach(beverages, id: \.id) { item in
+                                    OrderItemView(item: item, viewModel: viewModel)
+                                }
                             }
+                        }
+                        
+                        if !food.isEmpty {
+                            let courseGroups = Dictionary(grouping: food) { $0.course ?? 1 }
+                            let sortedCourses = courseGroups.keys.sorted()
                             
-                            ForEach((courseGroups[course] ?? []).sorted { $0.id < $1.id }, id: \.id) { item in
-                                OrderItemView(item: item, viewModel: viewModel)
+                            ForEach(sortedCourses, id: \.self) { course in
+                                if sortedCourses.count > 1 {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "clock")
+                                            .font(.system(size: 12, weight: .bold))
+                                        Text("Tiempo \(course)")
+                                            .font(.system(size: 12, weight: .bold))
+                                    }
+                                    .foregroundColor(.green)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.green.opacity(0.1))
+                                    .cornerRadius(8)
+                                }
+                                
+                                ForEach((courseGroups[course] ?? []).sorted { $0.id < $1.id }, id: \.id) { item in
+                                    OrderItemView(item: item, viewModel: viewModel)
+                                }
                             }
                         }
                     }
                 }
                 
-                // Show more button
-                if activeItems.count > 3 {
+                // Show more button (si hay más de 3 items en primer batch, o hay más batches)
+                if (!isExpanded && firstBatchCount > 3) || (!isExpanded && batches.count > 1) {
                     Button(action: onToggleExpand) {
                         HStack(spacing: 4) {
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            Image(systemName: "chevron.down")
                                 .font(.system(size: 12))
-                            Text(isExpanded ? "Ocultar" : "\(activeItems.count - 3) producto\(activeItems.count - 3 > 1 ? "s" : "") más")
+                            if batches.count > 1 {
+                                Text("Ver todo (\(totalItems) items, \(batches.count) envíos)")
+                                    .font(.system(size: 12))
+                            } else {
+                                Text("\(totalItems - 3) producto\(totalItems - 3 > 1 ? "s" : "") más")
+                                    .font(.system(size: 12))
+                            }
+                        }
+                        .foregroundColor(.blue)
+                    }
+                } else if isExpanded && (totalItems > 3 || batches.count > 1) {
+                    Button(action: onToggleExpand) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 12))
+                            Text("Ocultar")
                                 .font(.system(size: 12))
                         }
                         .foregroundColor(.blue)
@@ -170,6 +213,41 @@ struct OrderCardView: View {
         }
         .background(Color(red: 0.15, green: 0.15, blue: 0.15))
         .cornerRadius(12)
+    }
+    
+    // Agrupar items por envío (items creados dentro de 60 segundos = mismo batch)
+    private func groupItemsByBatch(_ items: [OrderItem]) -> [ItemBatch] {
+        guard !items.isEmpty else { return [] }
+        
+        // Ordenar por createdAt
+        let sorted = items.sorted { (a, b) in
+            let dateA = a.createdAt.flatMap { parseDate($0) } ?? Date.distantPast
+            let dateB = b.createdAt.flatMap { parseDate($0) } ?? Date.distantPast
+            return dateA < dateB
+        }
+        
+        var batches: [ItemBatch] = []
+        var currentBatch: [OrderItem] = [sorted[0]]
+        var currentDate = sorted[0].createdAt.flatMap { parseDate($0) } ?? Date.distantPast
+        
+        for i in 1..<sorted.count {
+            let itemDate = sorted[i].createdAt.flatMap { parseDate($0) } ?? Date.distantPast
+            
+            // Si están dentro de 60 segundos, mismo batch
+            if abs(itemDate.timeIntervalSince(currentDate)) <= 60 {
+                currentBatch.append(sorted[i])
+            } else {
+                batches.append(ItemBatch(items: currentBatch))
+                currentBatch = [sorted[i]]
+                currentDate = itemDate
+            }
+        }
+        
+        if !currentBatch.isEmpty {
+            batches.append(ItemBatch(items: currentBatch))
+        }
+        
+        return batches
     }
     
     private func calculateElapsedTime(from createdAtString: String, at currentDate: Date) -> String {

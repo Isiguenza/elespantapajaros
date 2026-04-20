@@ -13,6 +13,7 @@ import Combine
 class OrdersViewModel: ObservableObject {
     @Published var orders: [Order] = []
     @Published var previousOrderIds: Set<String> = []
+    @Published var previousItemCounts: [String: Int] = [:] // orderId -> item count
     @Published var expandedOrderIds: Set<String> = []
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -72,13 +73,34 @@ class OrdersViewModel: ObservableObject {
             // Check for new orders
             let hasNewOrder = newOrders.contains { !previousOrderIds.contains($0.id) }
             
-            // Play sound for new orders (including first order)
-            if hasNewOrder {
-                print("🔔 New order detected!")
-                soundPlayer.playNotification()
+            // Check for existing orders with new items added
+            var ordersWithNewItems: [String] = []
+            for order in newOrders {
+                let currentCount = order.items?.filter { $0.voided != true }.count ?? 0
+                let previousCount = previousItemCounts[order.id] ?? 0
+                if previousOrderIds.contains(order.id) && currentCount > previousCount {
+                    ordersWithNewItems.append(order.id)
+                    print("🆕 Order #\(order.orderNumber) has \(currentCount - previousCount) new items!")
+                }
             }
             
+            // Play sound for new orders OR new items added
+            if hasNewOrder || !ordersWithNewItems.isEmpty {
+                print("🔔 Notification: new order=\(hasNewOrder), orders with new items=\(ordersWithNewItems.count)")
+                soundPlayer.playNotification()
+                
+                // Auto-expand orders that received new items
+                for orderId in ordersWithNewItems {
+                    expandedOrderIds.insert(orderId)
+                }
+            }
+            
+            // Update tracking
             previousOrderIds = newOrderIds
+            previousItemCounts = Dictionary(uniqueKeysWithValues: newOrders.map { 
+                ($0.id, $0.items?.filter { $0.voided != true }.count ?? 0)
+            })
+            
             // Ordenar por fecha de creación (más recientes primero) para evitar saltos
             orders = newOrders.sorted { order1, order2 in
                 guard let date1 = ISO8601DateFormatter().date(from: order1.createdAt),

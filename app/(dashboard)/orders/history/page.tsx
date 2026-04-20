@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { format, isToday, isYesterday } from "date-fns";
 import { es } from "date-fns/locale";
 import type { Order } from "@/lib/types";
+import { ManualOrderDialog } from "@/components/manual-order-dialog";
 
 const methodLabels: Record<string, string> = {
   cash: "Efectivo",
@@ -39,6 +40,8 @@ export default function OrderHistoryPage() {
   const [editingPayment, setEditingPayment] = useState(false);
   const [newPaymentMethod, setNewPaymentMethod] = useState<string>("");
   const [consolidating, setConsolidating] = useState(false);
+  const [showManualOrderDialog, setShowManualOrderDialog] = useState(false);
+  const [creatingManualOrder, setCreatingManualOrder] = useState(false);
 
   useEffect(() => {
     fetchOrders();
@@ -200,6 +203,13 @@ export default function OrderHistoryPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Historial de Ventas</h1>
         <div className="flex items-center gap-3">
+          <Button
+            onClick={() => setShowManualOrderDialog(true)}
+            variant="default"
+            size="sm"
+          >
+            ➕ Añadir Orden Manual
+          </Button>
           <Button
             onClick={handleConsolidateDuplicates}
             disabled={consolidating}
@@ -578,6 +588,13 @@ export default function OrderHistoryPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Manual Order Dialog */}
+      <ManualOrderDialog
+        open={showManualOrderDialog}
+        onClose={() => setShowManualOrderDialog(false)}
+        onSuccess={fetchOrders}
+      />
     </div>
   );
 }

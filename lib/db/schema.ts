@@ -295,6 +295,7 @@ export const orderItems = pgTable("order_items", {
   promotionDiscount: decimal("promotion_discount", { precision: 10, scale: 2 }),
   // Guest/invited item
   isGuest: boolean("is_guest").notNull().default(false), // Item invitado (no se cobra)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Order payments (for split payments)

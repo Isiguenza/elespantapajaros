@@ -182,24 +182,24 @@ export default function CashRegisterPage() {
     if (!register) return;
     setLoadingOrders(true);
     try {
-      // Obtener solo órdenes completadas (delivered + paid) del día actual
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const startOfDay = today.toISOString();
+      // Obtener órdenes desde que se abrió la caja (no desde hoy, por si abrió ayer y sigue abierta)
+      const registerOpenedDate = new Date(register.openedAt);
+      registerOpenedDate.setHours(0, 0, 0, 0);
+      const startOfRegisterDay = registerOpenedDate.toISOString();
       
-      const res = await fetch(`/api/orders/history?registerId=${register.id}&startDate=${startOfDay}`);
+      const res = await fetch(`/api/orders/history?registerId=${register.id}&startDate=${startOfRegisterDay}`);
       if (res.ok) {
         const orders = await res.json();
-        // Filtrar solo las del día actual por si acaso
-        const todayOrders = orders.filter((order: any) => {
+        // Filtrar solo las del día que se abrió la caja
+        const registerDayOrders = orders.filter((order: any) => {
           const orderDate = new Date(order.createdAt);
           orderDate.setHours(0, 0, 0, 0);
-          return orderDate.getTime() === today.getTime();
+          return orderDate.getTime() === registerOpenedDate.getTime();
         });
-        setPaidOrders(todayOrders);
+        setPaidOrders(registerDayOrders);
         
         // Calcular el total real de las órdenes del día
-        const total = todayOrders.reduce((sum: number, order: any) => {
+        const total = registerDayOrders.reduce((sum: number, order: any) => {
           return sum + parseFloat(order.total || "0");
         }, 0);
         setActualTotalSales(total);

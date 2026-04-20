@@ -96,23 +96,30 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { items, customerName, notes, status: orderStatus, tableId, paymentMethod, loyaltyCardId } = body;
+    const { items, customerName, notes, status: orderStatus, tableId, paymentMethod, loyaltyCardId, orderNumber: manualOrderNumber } = body;
 
-    console.log("📦 API recibió orden:", { customerName, orderStatus, tableId });
+    console.log("📦 API recibió orden:", { customerName, orderStatus, tableId, manualOrderNumber });
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "Items required" }, { status: 400 });
     }
 
-    // Get next order number for today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Use manual order number if provided, otherwise auto-generate
+    let nextNumber: number;
+    if (manualOrderNumber) {
+      nextNumber = manualOrderNumber;
+      console.log(`📝 Usando # de orden manual: ${nextNumber}`);
+    } else {
+      // Get next order number for today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-    const lastOrder = await db.query.orders.findFirst({
-      where: sql`${orders.createdAt} >= ${today.toISOString()}`,
-      orderBy: [desc(orders.orderNumber)],
-    });
-    const nextNumber = (lastOrder?.orderNumber ?? 0) + 1;
+      const lastOrder = await db.query.orders.findFirst({
+        where: sql`${orders.createdAt} >= ${today.toISOString()}`,
+        orderBy: [desc(orders.orderNumber)],
+      });
+      nextNumber = (lastOrder?.orderNumber ?? 0) + 1;
+    }
 
     // Calculate total (excluding guest/invited items)
     const total = items.reduce(

@@ -43,6 +43,7 @@ struct OrderItem: Codable, Identifiable {
     let extraName: String?
     let customModifiers: String?
     let product: Product?
+    let createdAt: String?
 }
 
 // MARK: - Product

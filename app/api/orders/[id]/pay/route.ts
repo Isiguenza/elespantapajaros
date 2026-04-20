@@ -20,7 +20,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId, tip, subtotal: frontendSubtotal, discount } = body;
+    const { paymentMethod, loyaltyCardId, loyaltyStamps, userId, tip, subtotal: frontendSubtotal, discount, customTimestamp } = body;
 
     // Get the order
     const order = await db.query.orders.findFirst({
@@ -42,7 +42,8 @@ export async function POST(
     const newTotal = orderSubtotal + tipAmount;
 
     // Mark as paid and delivered for all payment methods (cash, transfer, terminal)
-    console.log(`💰 Marcando orden ${id} como paid + delivered (${paymentMethod}) con propina: $${tipAmount}, descuento: $${discount || 0}`);
+    const timestamp = customTimestamp ? new Date(customTimestamp) : new Date();
+    console.log(`💰 Marcando orden ${id} como paid + delivered (${paymentMethod}) con propina: $${tipAmount}, descuento: $${discount || 0}${customTimestamp ? ` [timestamp: ${timestamp.toISOString()}]` : ''}`);
     await db
       .update(orders)
       .set({
@@ -55,51 +56,18 @@ export async function POST(
         discountAmount: discount ? discount.toString() : null,
         loyaltyCardId: loyaltyCardId || null,
         userId: userId || null,
-        updatedAt: new Date(),
+        updatedAt: timestamp,
+        ...(customTimestamp && { createdAt: timestamp }), // También actualizar createdAt si es manual
       })
       .where(eq(orders.id, id));
 
-    // Si la orden tiene mesa, marcar TODAS las órdenes activas de esa mesa como delivered+paid y liberar mesa
+    // Liberar mesa si aplica
     if (order.tableId) {
-      console.log(`🏓 Liberando mesa ${order.tableId} - marcando todas las órdenes activas como delivered+paid`);
-      await db
-        .update(orders)
-        .set({
-          status: "delivered",
-          paymentStatus: "paid",
-          paymentMethod: paymentMethod,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(orders.tableId, order.tableId),
-            inArray(orders.status, ["pending", "preparing", "ready"])
-          )
-        );
-
       await db
         .update(tables)
         .set({ status: "available", guestCount: 1 })
         .where(eq(tables.id, order.tableId));
       console.log(`✅ Mesa ${order.tableId} liberada`);
-    } else if (order.customerName) {
-      // Para llevar/delivery: marcar TODAS las órdenes hermanas (mismo customerName) como paid+delivered
-      console.log(`🛍️ Para Llevar: marcando órdenes hermanas de "${order.customerName}" como delivered+paid`);
-      await db
-        .update(orders)
-        .set({
-          status: "delivered",
-          paymentStatus: "paid",
-          paymentMethod: paymentMethod,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(orders.customerName, order.customerName),
-            inArray(orders.status, ["pending", "preparing", "ready"])
-          )
-        );
-      console.log(`✅ Órdenes hermanas de "${order.customerName}" marcadas como pagadas`);
     }
 
     // Record cash register transaction
@@ -141,8 +109,13 @@ export async function POST(
         .where(eq(cashRegisters.id, currentRegister.id));
     }
 
+    // Re-fetch items after consolidation (includes items moved from siblings)
+    const consolidatedItems = await db.query.orderItems.findMany({
+      where: eq(orderItems.orderId, id),
+    });
+
     // Deduct inventory
-    for (const item of order.items || []) {
+    for (const item of consolidatedItems || []) {
       const recipe = await db.query.productIngredients.findMany({
         where: eq(productIngredients.productId, item.productId),
       });

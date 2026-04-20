@@ -1214,34 +1214,34 @@ export default function BarPage() {
     try {
       let orderId: string;
       
-      // SIEMPRE crear nueva orden cuando se envía a cocina (cada envío = comanda separada en dispatch)
-      console.log("🆕 Creando nueva orden con", pendingItems.length, "items");
-      const orderData = {
-        tableId: selectedTable?.id || null,
-        items: itemsData,
-        status: "preparing",
-        paymentMethod: null,
-        loyaltyCardId: null,
-        customerName: customerName || null,
-      };
-
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(orderData),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Error creating order");
-      }
-
-      const createdOrder = await res.json();
-      console.log("✅ Nueva orden creada:", createdOrder.id);
-      orderId = createdOrder.id;
-      
-      // Para la primera orden, guardar como currentOrderId
-      if (!currentOrderId) {
+      if (currentOrderId) {
+        // Ya hay orden → añadir items a la misma
+        console.log("📦 Añadiendo items a orden existente:", currentOrderId);
+        const res = await fetch(`/api/orders/${currentOrderId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: itemsData }),
+        });
+        if (!res.ok) throw new Error("Error adding items");
+        orderId = currentOrderId;
+      } else {
+        // Primera vez → crear orden
+        console.log("🆕 Creando orden con", pendingItems.length, "items");
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tableId: selectedTable?.id || null,
+            items: itemsData,
+            status: "preparing",
+            paymentMethod: null,
+            loyaltyCardId: null,
+            customerName: customerName || null,
+          }),
+        });
+        if (!res.ok) throw new Error("Error creating order");
+        const createdOrder = await res.json();
+        orderId = createdOrder.id;
         setCurrentOrderId(orderId);
       }
       
