@@ -503,6 +503,84 @@ app.post('/print-summary', async (req, res) => {
   }
 });
 
+// Endpoint para imprimir ticket de cortesía con línea de firma
+app.post('/print-guest', async (req, res) => {
+  try {
+    const { items, orderNumber } = req.body;
+    console.log('🎁 Imprimiendo ticket de cortesía:', items);
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+    let content = "";
+    content += commands.init;
+    content += commands.alignCenter;
+    content += commands.bold;
+    content += commands.textSizeDouble;
+    content += "CORTESIA\n";
+    content += commands.textSizeNormal;
+    content += commands.boldOff;
+    content += `${dateStr} ${timeStr}\n`;
+    content += `Orden: ${orderNumber}\n`;
+    content += "================================\n";
+    content += commands.alignLeft;
+
+    // Items
+    for (const item of items) {
+      const line = `${item.qty}x ${item.name}`;
+      content += `${line}\n`;
+      content += `  > Invitado\n`;
+    }
+
+    content += "\n";
+    content += "================================\n";
+    content += commands.alignCenter;
+    content += commands.bold;
+    content += "TOTAL: $0.00\n";
+    content += commands.boldOff;
+    content += "================================\n";
+    content += "\n\n\n";
+    content += "________________________________\n";
+    content += "\n";
+    content += "Firma del responsable\n";
+    content += "\n\n";
+    content += commands.feed;
+    content += commands.cut;
+
+    // Enviar a impresora
+    const client = new net.Socket();
+    let responseSent = false;
+
+    client.connect(PRINTER_PORT, PRINTER_IP, () => {
+      console.log('📡 Conectado a impresora para ticket cortesía');
+      client.write(content, 'binary', () => {
+        client.end();
+      });
+    });
+
+    client.on('error', (err) => {
+      console.error('❌ Error impresora:', err.message);
+      if (!responseSent) {
+        responseSent = true;
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    client.on('close', () => {
+      console.log('✅ Ticket cortesía enviado a impresora');
+      if (!responseSent) {
+        responseSent = true;
+        res.json({ success: true });
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', printer: `${PRINTER_IP}:${PRINTER_PORT}` });

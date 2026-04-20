@@ -69,6 +69,7 @@ export default function BarPage() {
   const [showGuestItemsDialog, setShowGuestItemsDialog] = useState(false);
   const [guestItemsSelection, setGuestItemsSelection] = useState<number[]>([]);
   const [showGuestProductDialog, setShowGuestProductDialog] = useState(false); // Dialog para agregar productos invitados (cortesía dueños)
+  const [guestProductCart, setGuestProductCart] = useState<Array<{ productId: string; name: string; price: number; qty: number }>>([]); // Carrito temporal para cortesías
   
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -269,7 +270,7 @@ export default function BarPage() {
           .then(res => res.json())
           .then(order => {
             if (order && order.items) {
-              const cartItems: CartItem[] = order.items
+              const apiCartItems: CartItem[] = order.items
                 .filter((item: any) => !item.voided)
                 .map((item: any) => ({
                   productId: item.productId,
@@ -295,10 +296,14 @@ export default function BarPage() {
                   isGuest: item.isGuest || false,
                 }));
               
-              setCart(cartItems);
-              const maxCourse = Math.max(...cartItems.map(i => i.course || 1), 1);
+              // Merge con items no enviados de localStorage (para preservar items invitados pendientes)
+              const localUnsentItems = savedCart ? JSON.parse(savedCart).filter((item: CartItem) => !item.sentToKitchen) : [];
+              const mergedCart = [...apiCartItems, ...localUnsentItems];
+              
+              setCart(mergedCart);
+              const maxCourse = Math.max(...mergedCart.map(i => i.course || 1), 1);
               setActiveCourse(maxCourse);
-              console.log('✅ Carrito restaurado desde API:', cartItems.length, 'items');
+              console.log('✅ Carrito restaurado desde API:', apiCartItems.length, 'items + ', localUnsentItems.length, 'items locales no enviados');
             }
           })
           .catch(error => {
@@ -3108,6 +3113,150 @@ export default function BarPage() {
           </div>
           </div>
         )}
+        
+        {/* Diálogo Invitar Producto en vista de mesas */}
+        <Dialog open={showGuestProductDialog} onOpenChange={(open) => {
+          setShowGuestProductDialog(open);
+          if (!open) setGuestProductCart([]);
+        }}>
+          <DialogContent className="bg-neutral-950 border-neutral-800 text-white max-w-2xl max-h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-2">
+                <Gift className="size-5 text-purple-400" />
+                Invitar Producto (Cortesía)
+              </DialogTitle>
+              <p className="text-sm text-neutral-400">
+                Selecciona productos para registrar como cortesía. Se imprimirá un ticket.
+              </p>
+            </DialogHeader>
+            
+            {/* Productos seleccionados */}
+            {guestProductCart.length > 0 && (
+              <div className="border border-purple-800 rounded-lg p-3 space-y-2 bg-purple-900/10">
+                <p className="text-xs font-semibold text-purple-400 uppercase">Productos a invitar:</p>
+                {guestProductCart.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-sm">
+                    <span className="text-white">{item.qty}x {item.name}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setGuestProductCart(prev => prev.filter((_, i) => i !== idx))}
+                      className="text-red-400 hover:text-red-300 h-6 w-6 p-0"
+                    >
+                      <X className="size-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-3 py-2 overflow-y-auto flex-1">
+              {products.filter(p => p.active).map((product) => (
+                <Button
+                  key={product.id}
+                  onClick={() => {
+                    setGuestProductCart(prev => {
+                      const existing = prev.find(p => p.productId === product.id);
+                      if (existing) {
+                        return prev.map(p => p.productId === product.id ? { ...p, qty: p.qty + 1 } : p);
+                      }
+                      return [...prev, {
+                        productId: product.id,
+                        name: product.name,
+                        price: parseFloat(product.price),
+                        qty: 1,
+                      }];
+                    });
+                  }}
+                  variant="outline"
+                  className="h-auto py-4 px-3 flex flex-col items-start gap-1 bg-neutral-900 border-neutral-700 hover:bg-purple-900/20 hover:border-purple-700 text-left"
+                >
+                  <span className="font-semibold text-white">{product.name}</span>
+                  <span className="text-xs text-neutral-400">{formatCurrency(parseFloat(product.price))}</span>
+                </Button>
+              ))}
+            </div>
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => {
+                setShowGuestProductDialog(false);
+                setGuestProductCart([]);
+              }}>
+                Cancelar
+              </Button>
+              <Button
+                disabled={guestProductCart.length === 0}
+                onClick={async () => {
+                  try {
+                    // Crear orden con todos los items invitados
+                    const orderData = {
+                      tableId: null,
+                      items: guestProductCart.map(item => ({
+                        productId: item.productId,
+                        productName: item.name,
+                        quantity: item.qty,
+                        unitPrice: item.price,
+                        notes: "Cortesía",
+                        isGuest: true,
+                        seat: "C",
+                        course: 1,
+                      })),
+                      status: "preparing",
+                      paymentMethod: null,
+                      loyaltyCardId: null,
+                      customerName: "Cortesía Casa",
+                    };
+
+                    const res = await fetch("/api/orders", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(orderData),
+                    });
+
+                    if (!res.ok) throw new Error("Error creando orden");
+                    const createdOrder = await res.json();
+                    
+                    // Marcar como pagada inmediatamente
+                    await fetch(`/api/orders/${createdOrder.id}/pay`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        paymentMethod: "cash",
+                        cashReceived: 0,
+                        tip: 0,
+                        discount: 0,
+                      }),
+                    });
+
+                    // Imprimir ticket de cortesía con línea de firma
+                    const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.160:3001";
+                    await fetch(`${printServerUrl}/print-guest`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        items: guestProductCart.map(item => ({
+                          name: item.name,
+                          qty: item.qty,
+                        })),
+                        orderNumber: createdOrder.id?.slice(0, 8) || "N/A",
+                      }),
+                    });
+
+                    toast.success(`Cortesía registrada (${guestProductCart.length} productos) — Ticket impreso`);
+                    setGuestProductCart([]);
+                    setShowGuestProductDialog(false);
+                  } catch (error) {
+                    toast.error("Error registrando cortesía");
+                    console.error(error);
+                  }
+                }}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                <Gift className="size-4 mr-2" />
+                Invitar y Registrar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -3190,6 +3339,7 @@ export default function BarPage() {
                 <Users className="size-4" weight="fill" />
                 <span>{guestCount}</span>
               </Button>
+              
             </div>
           )}
           <div className="flex items-center justify-between mb-2">
@@ -5382,55 +5532,6 @@ export default function BarPage() {
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               Aplicar Descuento
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Diálogo Invitar Producto (Cortesía Dueños) */}
-      <Dialog open={showGuestProductDialog} onOpenChange={setShowGuestProductDialog}>
-        <DialogContent className="bg-neutral-950 border-neutral-800 text-white max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
-              <Gift className="size-5 text-purple-400" />
-              Invitar Producto (Cortesía)
-            </DialogTitle>
-            <p className="text-sm text-neutral-400">
-              Selecciona productos para agregar como cortesía. Aparecerán en el historial pero no se cobrarán.
-            </p>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 py-4">
-            {products.filter(p => p.active).map((product) => (
-              <Button
-                key={product.id}
-                onClick={() => {
-                  // Agregar producto como invitado directamente al carrito
-                  const newItem: CartItem = {
-                    productId: product.id,
-                    productName: product.name,
-                    unitPrice: parseFloat(product.price),
-                    quantity: 1,
-                    notes: "",
-                    sentToKitchen: false,
-                    isGuest: true, // IMPORTANTE: marcar como invitado
-                    seat: activeSeat,
-                    course: activeCourse,
-                  };
-                  setCart([...cart, newItem]);
-                  toast.success(`${product.name} agregado como cortesía`);
-                  setShowGuestProductDialog(false);
-                }}
-                variant="outline"
-                className="h-auto py-4 px-3 flex flex-col items-start gap-1 bg-neutral-900 border-neutral-700 hover:bg-purple-900/20 hover:border-purple-700 text-left"
-              >
-                <span className="font-semibold text-white">{product.name}</span>
-                <span className="text-xs text-neutral-400">{formatCurrency(parseFloat(product.price))}</span>
-              </Button>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowGuestProductDialog(false)}>
-              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>
