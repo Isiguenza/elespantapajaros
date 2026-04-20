@@ -114,10 +114,10 @@ export async function POST(request: NextRequest) {
     });
     const nextNumber = (lastOrder?.orderNumber ?? 0) + 1;
 
-    // Calculate total
+    // Calculate total (excluding guest/invited items)
     const total = items.reduce(
-      (sum: number, item: { unitPrice: number; quantity: number }) =>
-        sum + item.unitPrice * item.quantity,
+      (sum: number, item: { unitPrice: number; quantity: number; isGuest?: boolean }) =>
+        item.isGuest ? sum : sum + item.unitPrice * item.quantity,
       0
     );
 
@@ -160,13 +160,14 @@ export async function POST(request: NextRequest) {
         customModifiers?: string | null;
         seat?: string | null;
         course?: number | null;
+        isGuest?: boolean;
       }) => ({
         orderId: order.id,
         productId: item.productId,
         productName: item.productName,
         quantity: item.quantity,
         unitPrice: item.unitPrice.toFixed(2),
-        subtotal: (item.unitPrice * item.quantity).toFixed(2),
+        subtotal: (item.isGuest ? 0 : item.unitPrice * item.quantity).toFixed(2),
         notes: item.notes,
         frostingId: item.frostingId || null,
         frostingName: item.frostingName || null,
@@ -177,6 +178,7 @@ export async function POST(request: NextRequest) {
         customModifiers: item.customModifiers || null,
         seat: item.seat || null,
         course: item.course || 1,
+        isGuest: item.isGuest || false,
       })
     );
 

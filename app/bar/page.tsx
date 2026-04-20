@@ -68,6 +68,7 @@ export default function BarPage() {
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [showGuestItemsDialog, setShowGuestItemsDialog] = useState(false);
   const [guestItemsSelection, setGuestItemsSelection] = useState<number[]>([]);
+  const [showGuestProductDialog, setShowGuestProductDialog] = useState(false); // Dialog para agregar productos invitados (cortesía dueños)
   
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -1202,6 +1203,7 @@ export default function BarPage() {
       customModifiers: item.customModifiers || null,
       seat: item.seat || "C",
       course: item.course || 1,
+      isGuest: item.isGuest || false,
     }));
 
     try {
@@ -2297,8 +2299,10 @@ export default function BarPage() {
         }
       }
 
+      // Calcular subtotal excluyendo items invitados
       const subtotal = Array.from(seatGroups.values())
         .flatMap(g => Array.from(g.values()))
+        .filter(i => !i.isGuest) // Excluir items invitados del total
         .reduce((sum, i) => sum + i.total, 0);
       
       // Calcular descuento si hay
@@ -2848,6 +2852,17 @@ export default function BarPage() {
                 <p className="text-neutral-400">Selecciona una mesa para comenzar</p>
               </div>
               <div className="flex items-center gap-2">
+                {/* Botón para invitar productos (cortesía dueños) */}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowGuestProductDialog(true)}
+                  className="bg-purple-900/20 border-purple-700 text-purple-400 hover:bg-purple-800/30 hover:text-purple-300"
+                  title="Invitar Producto (Cortesía)"
+                >
+                  <Gift className="size-5" />
+                </Button>
+                
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -5367,6 +5382,55 @@ export default function BarPage() {
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               Aplicar Descuento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo Invitar Producto (Cortesía Dueños) */}
+      <Dialog open={showGuestProductDialog} onOpenChange={setShowGuestProductDialog}>
+        <DialogContent className="bg-neutral-950 border-neutral-800 text-white max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Gift className="size-5 text-purple-400" />
+              Invitar Producto (Cortesía)
+            </DialogTitle>
+            <p className="text-sm text-neutral-400">
+              Selecciona productos para agregar como cortesía. Aparecerán en el historial pero no se cobrarán.
+            </p>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-4">
+            {products.filter(p => p.active).map((product) => (
+              <Button
+                key={product.id}
+                onClick={() => {
+                  // Agregar producto como invitado directamente al carrito
+                  const newItem: CartItem = {
+                    productId: product.id,
+                    productName: product.name,
+                    unitPrice: parseFloat(product.price),
+                    quantity: 1,
+                    notes: "",
+                    sentToKitchen: false,
+                    isGuest: true, // IMPORTANTE: marcar como invitado
+                    seat: activeSeat,
+                    course: activeCourse,
+                  };
+                  setCart([...cart, newItem]);
+                  toast.success(`${product.name} agregado como cortesía`);
+                  setShowGuestProductDialog(false);
+                }}
+                variant="outline"
+                className="h-auto py-4 px-3 flex flex-col items-start gap-1 bg-neutral-900 border-neutral-700 hover:bg-purple-900/20 hover:border-purple-700 text-left"
+              >
+                <span className="font-semibold text-white">{product.name}</span>
+                <span className="text-xs text-neutral-400">{formatCurrency(parseFloat(product.price))}</span>
+              </Button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGuestProductDialog(false)}>
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>
