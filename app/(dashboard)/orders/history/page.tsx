@@ -75,11 +75,17 @@ export default function OrderHistoryPage() {
   async function fetchOrders() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/orders?status=delivered&limit=200`);
+      // Obtener SOLO órdenes PAGADAS de los últimos 30 días
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const startDate = thirtyDaysAgo.toISOString();
+      
+      // Filtrar solo órdenes pagadas con caja registradora
+      const res = await fetch(`/api/orders?paymentStatus=paid&startDate=${startDate}&limit=5000`);
       if (res.ok) {
         const data: Order[] = await res.json();
-        // Solo órdenes cobradas (paymentStatus = paid)
-        setOrders(data.filter(o => o.paymentStatus === "paid"));
+        // Filtrar solo las que tienen cashRegisterId (pasaron por caja)
+        setOrders(data.filter(o => o.cashRegisterId));
       }
     } catch (error) {
       console.error("Error fetching orders:", error);

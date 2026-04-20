@@ -1,0 +1,1 @@
+ALTER TABLE "order_items" ADD COLUMN "is_guest" boolean DEFAULT false NOT NULL;

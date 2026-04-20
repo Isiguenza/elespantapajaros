@@ -43,13 +43,16 @@ export async function POST(
         extraId?: string | null;
         extraName?: string | null;
         customModifiers?: string | null;
+        isGuest?: boolean;
+        seat?: string;
+        course?: number;
       }) => ({
         orderId: id,
         productId: item.productId,
         productName: item.productName,
         quantity: item.quantity,
         unitPrice: item.unitPrice.toFixed(2),
-        subtotal: (item.unitPrice * item.quantity).toFixed(2),
+        subtotal: (item.isGuest ? 0 : item.unitPrice * item.quantity).toFixed(2),
         notes: item.notes,
         frostingId: item.frostingId || null,
         frostingName: item.frostingName || null,
@@ -58,15 +61,18 @@ export async function POST(
         extraId: item.extraId || null,
         extraName: item.extraName || null,
         customModifiers: item.customModifiers || null,
+        isGuest: item.isGuest || false,
+        seat: item.seat || "C",
+        course: item.course || 1,
       })
     );
 
     await db.insert(orderItems).values(itemsToInsert);
 
-    // Update order total
+    // Update order total (excluding guest/invited items)
     const newItemsTotal = items.reduce(
-      (sum: number, item: { unitPrice: number; quantity: number }) =>
-        sum + item.unitPrice * item.quantity,
+      (sum: number, item: { unitPrice: number; quantity: number; isGuest?: boolean }) =>
+        item.isGuest ? sum : sum + item.unitPrice * item.quantity,
       0
     );
     

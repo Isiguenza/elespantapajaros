@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { orders, orderItems, cashRegisters, cashRegisterTransactions, productIngredients, ingredients } from "@/lib/db/schema";
-import { eq, desc, inArray, sql, and } from "drizzle-orm";
+import { eq, desc, inArray, sql, and, gte } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,9 +9,11 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status");
     const tableId = searchParams.get("tableId");
     const noTable = searchParams.get("noTable") === "true";
+    const paymentStatus = searchParams.get("paymentStatus");
+    const startDate = searchParams.get("startDate");
     const limit = parseInt(searchParams.get("limit") || "50");
 
-    console.log("🔍 GET /api/orders - Params:", { status, tableId, noTable, limit });
+    console.log("🔍 GET /api/orders - Params:", { status, tableId, noTable, paymentStatus, startDate, limit });
 
     const whereClauses = [];
     
@@ -25,6 +27,11 @@ export async function GET(request: NextRequest) {
       }
     }
     
+    if (paymentStatus) {
+      console.log("💰 Filtrando por paymentStatus:", paymentStatus);
+      whereClauses.push(eq(orders.paymentStatus, paymentStatus as "pending" | "paid" | "failed"));
+    }
+    
     if (tableId) {
       console.log("🏓 Filtrando por tableId:", tableId);
       whereClauses.push(eq(orders.tableId, tableId));
@@ -33,6 +40,11 @@ export async function GET(request: NextRequest) {
     if (noTable) {
       console.log("📦 Filtrando órdenes sin mesa");
       whereClauses.push(sql`${orders.tableId} IS NULL`);
+    }
+    
+    if (startDate) {
+      console.log("📅 Filtrando desde fecha:", startDate);
+      whereClauses.push(gte(orders.createdAt, new Date(startDate)));
     }
 
     const whereClause = whereClauses.length > 0 

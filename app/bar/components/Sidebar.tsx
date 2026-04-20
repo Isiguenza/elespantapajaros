@@ -45,7 +45,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     <div
       className={cn(
         "relative h-full bg-neutral-950 border-r border-neutral-800 text-white transition-all duration-300 flex flex-col",
-        isOpen ? "w-60" : "w-16"
+        isOpen ? "w-60" : "w-24"
       )}
     >
       {/* Logo */}
@@ -54,13 +54,13 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           <img 
             src="/logos/horiz.png" 
             alt="BRUMA" 
-            className="h-8 w-auto"
+            className="h-12 w-auto"
           />
         ) : (
           <img 
             src="/logos/isotipo.png" 
             alt="BRUMA" 
-            className="h-8 w-auto mx-auto"
+            className="h-16 w-auto mx-auto"
           />
         )}
       </div>

@@ -55,10 +55,11 @@ export async function POST(
       })
       .where(eq(orders.id, id));
 
-    // Delete the now-empty sibling orders
-    await db.delete(orders).where(inArray(orders.id, siblingOrderIds));
+    // NO BORRAR ÓRDENES - Mantener historial completo
+    // Las órdenes hermanas quedan vacías pero se mantienen en la BD para el historial
+    // await db.delete(orders).where(inArray(orders.id, siblingOrderIds));
 
-    console.log(`✅ Consolidated: ${allItems.length} total items, new total: $${newTotal.toFixed(2)}`);
+    console.log(`✅ Consolidated: ${allItems.length} total items, new total: $${newTotal.toFixed(2)} (sibling orders kept in DB)`);
 
     const fullOrder = await db.query.orders.findFirst({
       where: eq(orders.id, id),

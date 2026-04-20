@@ -291,6 +291,7 @@ export default function BarPage() {
                   seat: item.seat || "C",
                   course: item.course || 1,
                   isBeverage: item.product?.category?.isBeverage || false,
+                  isGuest: item.isGuest || false,
                 }));
               
               setCart(cartItems);
@@ -748,7 +749,7 @@ export default function BarPage() {
           order.paymentStatus !== 'paid' && order.status !== 'delivered'
         );
         
-        // Separar entre Para Llevar (customerName no empieza con "Uber" o "Rappi") y Delivery de plataforma
+        // Separar entre Para Llevar y Delivery de plataforma
         const regularTakeout = activeOnly.filter((order: any) => 
           !order.customerName?.startsWith('Uber') && !order.customerName?.startsWith('Rappi') && !order.customerName?.startsWith('Didi')
         );
@@ -756,8 +757,26 @@ export default function BarPage() {
           order.customerName?.startsWith('Uber') || order.customerName?.startsWith('Rappi') || order.customerName?.startsWith('Didi')
         );
         
-        setDeliveryOrders(regularTakeout);
-        setPlatformDeliveryOrders(platformDelivery);
+        // Agrupar órdenes por customerName para no mostrar duplicados en el panel
+        // Cuando hay múltiples envíos a cocina, se crean varias órdenes con el mismo nombre
+        // En el panel solo mostramos UNA entrada por cliente (la primera orden como representante)
+        const groupByName = (orders: any[]) => {
+          const grouped = new Map<string, any>();
+          for (const order of orders) {
+            const key = order.customerName || order.id;
+            if (!grouped.has(key)) {
+              // Guardar la primera orden como representante, con referencia a todas las hermanas
+              grouped.set(key, { ...order, _siblingOrderIds: [order.id] });
+            } else {
+              // Agregar el ID de esta orden a las hermanas
+              grouped.get(key)._siblingOrderIds.push(order.id);
+            }
+          }
+          return Array.from(grouped.values());
+        };
+        
+        setDeliveryOrders(groupByName(regularTakeout));
+        setPlatformDeliveryOrders(groupByName(platformDelivery));
       }
     } catch (error) {
       console.error('Error fetching delivery orders:', error);
@@ -978,45 +997,55 @@ export default function BarPage() {
     setCustomerName(order.customerName || "");
     setCurrentOrderId(order.id);
     
-    // Cargar la orden completa desde la API para tener todos los items actualizados
+    // Cargar TODAS las órdenes hermanas (múltiples envíos a cocina = múltiples órdenes)
+    const siblingIds: string[] = (order as any)._siblingOrderIds || [order.id];
+    
     try {
-      const res = await fetch(`/api/orders/${order.id}`);
-      if (!res.ok) throw new Error('Error fetching order');
+      // Fetch todas las órdenes hermanas en paralelo
+      const responses = await Promise.all(
+        siblingIds.map((id: string) => fetch(`/api/orders/${id}`).then(r => r.json()))
+      );
       
-      const fullOrder = await res.json();
+      // Combinar items de todas las órdenes en un solo carrito
+      const allCartItems: CartItem[] = [];
+      for (const fullOrder of responses) {
+        if (fullOrder && fullOrder.items) {
+          const items: CartItem[] = fullOrder.items
+            .filter((item: any) => !item.voided)
+            .map((item: any) => ({
+              productId: item.productId,
+              productName: item.productName,
+              unitPrice: parseFloat(item.unitPrice),
+              quantity: item.quantity,
+              notes: item.notes || "",
+              frostingId: item.frostingId,
+              frostingName: item.frostingName,
+              dryToppingId: item.dryToppingId,
+              dryToppingName: item.dryToppingName,
+              extraId: item.extraId,
+              extraName: item.extraName,
+              customModifiers: item.customModifiers,
+              sentToKitchen: fullOrder.status === "preparing" || fullOrder.status === "ready" || fullOrder.status === "delivered",
+              orderStatus: fullOrder.status,
+              orderId: fullOrder.id,
+              itemId: item.id,
+              deliveredToTable: item.deliveredToTable || false,
+              seat: item.seat || "C",
+              course: item.course || 1,
+              isBeverage: item.product?.category?.isBeverage || false,
+              isGuest: item.isGuest || false,
+            }));
+          allCartItems.push(...items);
+        }
+      }
       
-      if (fullOrder && fullOrder.items) {
-        const cartItems: CartItem[] = fullOrder.items
-          .filter((item: any) => !item.voided)
-          .map((item: any) => ({
-            productId: item.productId,
-            productName: item.productName,
-            unitPrice: parseFloat(item.unitPrice),
-            quantity: item.quantity,
-            notes: item.notes || "",
-            frostingId: item.frostingId,
-            frostingName: item.frostingName,
-            dryToppingId: item.dryToppingId,
-            dryToppingName: item.dryToppingName,
-            extraId: item.extraId,
-            extraName: item.extraName,
-            customModifiers: item.customModifiers,
-            sentToKitchen: fullOrder.status === "preparing" || fullOrder.status === "ready" || fullOrder.status === "delivered",
-            orderStatus: fullOrder.status,
-            orderId: fullOrder.id,
-            itemId: item.id,
-            deliveredToTable: item.deliveredToTable || false,
-            seat: item.seat || "C",
-            course: item.course || 1,
-            isBeverage: item.product?.category?.isBeverage || false,
-          }));
-        
-        const maxCourse = Math.max(...cartItems.map(i => i.course || 1), 1);
+      if (allCartItems.length > 0) {
+        const maxCourse = Math.max(...allCartItems.map(i => i.course || 1), 1);
         setActiveCourse(maxCourse);
-        setCart(cartItems);
+        setCart(allCartItems);
         
-        // Restaurar estado de división de cuenta si existe
-        const splitData = fullOrder.splitBillData;
+        // Restaurar estado de división de cuenta si existe (del primer orden)
+        const splitData = responses[0]?.splitBillData;
         if (splitData) {
           try {
             const parsed = typeof splitData === "string" ? JSON.parse(splitData) : splitData;
@@ -1036,7 +1065,7 @@ export default function BarPage() {
           }
         }
         
-        toast.success(`Orden Para Llevar - ${order.customerName || `#${order.orderNumber}`} cargada (${cartItems.length} items)`);
+        toast.success(`Orden Para Llevar - ${order.customerName || `#${order.orderNumber}`} cargada (${allCartItems.length} items)`);
       }
     } catch (error) {
       console.error('Error loading delivery order:', error);
@@ -1178,7 +1207,7 @@ export default function BarPage() {
     try {
       let orderId: string;
       
-      // SIEMPRE crear una nueva orden cuando se envía a cocina
+      // SIEMPRE crear nueva orden cuando se envía a cocina (cada envío = comanda separada en dispatch)
       console.log("🆕 Creando nueva orden con", pendingItems.length, "items");
       const orderData = {
         tableId: selectedTable?.id || null,
@@ -1204,8 +1233,7 @@ export default function BarPage() {
       console.log("✅ Nueva orden creada:", createdOrder.id);
       orderId = createdOrder.id;
       
-      // Si ya había un orderId previo, mantenerlo en el carrito para consolidar al pagar
-      // pero NO lo usamos como currentOrderId para evitar agregar a órdenes en preparación
+      // Para la primera orden, guardar como currentOrderId
       if (!currentOrderId) {
         setCurrentOrderId(orderId);
       }
@@ -2019,6 +2047,7 @@ export default function BarPage() {
                 extraId: item.extraId || null,
                 extraName: item.extraName || null,
                 customModifiers: item.customModifiers || null,
+                isGuest: item.isGuest || false, // IMPORTANTE: Persistir items invitados
               })),
             }),
           });
@@ -2057,6 +2086,7 @@ export default function BarPage() {
           extraId: item.extraId,
           extraName: item.extraName,
           customModifiers: item.customModifiers,
+          isGuest: item.isGuest || false, // IMPORTANTE: Persistir items invitados
         })),
         employeeId,
         tableId: selectedTable?.id || null,
@@ -2109,15 +2139,15 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
-      // Consolidar órdenes hermanas antes de pagar
-      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-      if (siblingOrderIds.length > 0) {
-        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siblingOrderIds }),
-        });
-      }
+      // CONSOLIDACIÓN DESHABILITADA - Mantener todas las órdenes separadas
+      // const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      // if (siblingOrderIds.length > 0) {
+      //   await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+      //     method: "POST",
+      //     headers: { "Content-Type": "application/json" },
+      //     body: JSON.stringify({ siblingOrderIds }),
+      //   });
+      // }
       
       // Calcular propina
       const tipAmount = showCustomTip 
@@ -2157,15 +2187,15 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
-      // Consolidar órdenes hermanas antes de pagar
-      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-      if (siblingOrderIds.length > 0) {
-        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siblingOrderIds }),
-        });
-      }
+      // CONSOLIDACIÓN DESHABILITADA - Mantener todas las órdenes separadas
+      // const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      // if (siblingOrderIds.length > 0) {
+      //   await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+      //     method: "POST",
+      //     headers: { "Content-Type": "application/json" },
+      //     body: JSON.stringify({ siblingOrderIds }),
+      //   });
+      // }
       
       // Calcular propina
       const tipAmount = showCustomTip 
@@ -2490,15 +2520,15 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
-      // Consolidar órdenes hermanas antes de pagar
-      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-      if (siblingOrderIds.length > 0) {
-        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siblingOrderIds }),
-        });
-      }
+      // CONSOLIDACIÓN DESHABILITADA - Mantener todas las órdenes separadas
+      // const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      // if (siblingOrderIds.length > 0) {
+      //   await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+      //     method: "POST",
+      //     headers: { "Content-Type": "application/json" },
+      //     body: JSON.stringify({ siblingOrderIds }),
+      //   });
+      // }
       
       // Calcular propina
       const tipAmount = showCustomTip 
@@ -2539,15 +2569,15 @@ export default function BarPage() {
     if (!currentOrderId) return;
     setProcessing(true);
     try {
-      // Consolidar órdenes hermanas
-      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-      if (siblingOrderIds.length > 0) {
-        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ siblingOrderIds }),
-        });
-      }
+      // CONSOLIDACIÓN DESHABILITADA - Mantener todas las órdenes separadas
+      // const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+      // if (siblingOrderIds.length > 0) {
+      //   await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+      //     method: "POST",
+      //     headers: { "Content-Type": "application/json" },
+      //     body: JSON.stringify({ siblingOrderIds }),
+      //   });
+      // }
       
       // Calcular subtotal y total
       const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
@@ -3776,16 +3806,16 @@ export default function BarPage() {
                         });
                       }
                       
-                      // Consolidar órdenes hermanas en la orden principal antes de pagar
-                      const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
-                      if (siblingOrderIds.length > 0) {
-                        console.log("🔀 Consolidando", siblingOrderIds.length, "órdenes hermanas");
-                        await fetch(`/api/orders/${currentOrderId}/consolidate`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ siblingOrderIds }),
-                        });
-                      }
+                      // CONSOLIDACIÓN DESHABILITADA - Mantener todas las órdenes separadas
+                      // const siblingOrderIds = [...new Set(cart.map(item => item.orderId).filter(id => id && id !== currentOrderId))];
+                      // if (siblingOrderIds.length > 0) {
+                      //   console.log("🔀 Consolidando", siblingOrderIds.length, "órdenes hermanas");
+                      //   await fetch(`/api/orders/${currentOrderId}/consolidate`, {
+                      //     method: "POST",
+                      //     headers: { "Content-Type": "application/json" },
+                      //     body: JSON.stringify({ siblingOrderIds }),
+                      //   });
+                      // }
                       
                       const res = await fetch(`/api/orders/${currentOrderId}/pay`, {
                         method: "POST",

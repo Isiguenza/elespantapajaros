@@ -57,11 +57,10 @@ export async function POST(
     const registerOpenedAt = new Date(register.openedAt);
     registerOpenedAt.setHours(0, 0, 0, 0);
 
-    // Get all paid orders for this register from today
+    // Get all paid orders for this register from today (sin importar status)
     const paidOrders = await db.query.orders.findMany({
       where: and(
         eq(orders.cashRegisterId, id),
-        eq(orders.status, "delivered"),
         eq(orders.paymentStatus, "paid"),
         gte(orders.createdAt, registerOpenedAt)
       ),

@@ -293,6 +293,8 @@ export const orderItems = pgTable("order_items", {
   promotionName: varchar("promotion_name", { length: 255 }),
   originalPrice: decimal("original_price", { precision: 10, scale: 2 }),
   promotionDiscount: decimal("promotion_discount", { precision: 10, scale: 2 }),
+  // Guest/invited item
+  isGuest: boolean("is_guest").notNull().default(false), // Item invitado (no se cobra)
 });
 
 // Order payments (for split payments)
@@ -654,3 +656,27 @@ export const promotionsRelations = relations(promotions, ({ one }) => ({
 export const categoriesRelationsWithPromotions = relations(categories, ({ many }) => ({
   promotions: many(promotions),
 }));
+
+// SALES HISTORY - Tabla de auditoría INMUTABLE para todas las ventas
+// Esta tabla NUNCA se modifica ni se borra - registro permanente
+export const salesHistory = pgTable("sales_history", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  orderId: uuid("order_id").notNull(), // Referencia a la orden original
+  orderNumber: integer("order_number").notNull(),
+  cashRegisterId: uuid("cash_register_id").notNull().references(() => cashRegisters.id),
+  tableId: uuid("table_id").references(() => tables.id),
+  tableNumber: integer("table_number"), // Guardamos el número por si se borra la mesa
+  customerName: varchar("customer_name", { length: 255 }),
+  paymentMethod: paymentMethodEnum("payment_method").notNull(),
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  tip: decimal("tip", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  discount: decimal("discount", { precision: 10, scale: 2 }).default("0"),
+  discountName: varchar("discount_name", { length: 255 }),
+  itemsJson: text("items_json").notNull(), // JSON de todos los items
+  userId: uuid("user_id").references(() => userProfiles.id),
+  loyaltyCardId: uuid("loyalty_card_id").references(() => loyaltyCards.id),
+  splitBillData: text("split_bill_data"),
+  createdAt: timestamp("created_at").notNull(), // Fecha original de la orden
+  paidAt: timestamp("paid_at").defaultNow().notNull(), // Fecha en que se pagó
+});

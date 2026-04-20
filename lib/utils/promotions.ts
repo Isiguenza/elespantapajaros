@@ -13,10 +13,11 @@ export function applyPromotions(
   console.log('🎯 Aplicando promociones:', promotions.length, 'promociones activas');
   console.log('🛒 Items en carrito:', cartItems.length);
 
-  // Group items by product
+  // Group items by product AND price (same product at different prices = different group)
+  // e.g. "Tacos Ensenada pieza" ($25) vs "Tacos Ensenada orden" ($60) should NOT mix
   const itemsByProduct = new Map<string, CartItem[]>();
   cartItems.forEach((item, index) => {
-    const key = item.productId;
+    const key = `${item.productId}_${item.unitPrice}`;
     if (!itemsByProduct.has(key)) {
       itemsByProduct.set(key, []);
     }
@@ -24,15 +25,19 @@ export function applyPromotions(
   });
 
   console.log('📦 Productos agrupados:', Array.from(itemsByProduct.entries()).map(([id, items]) => ({
-    productId: id,
+    key: id,
     productName: items[0]?.productName,
+    unitPrice: items[0]?.unitPrice,
     totalQty: items.reduce((sum, i) => sum + i.quantity, 0)
   })));
 
   const updatedItems = [...cartItems];
 
   // Process each product group
-  itemsByProduct.forEach((items, productId) => {
+  itemsByProduct.forEach((items, groupKey) => {
+    // Extract real productId from composite key (productId_price)
+    const realProductId = items[0]?.productId || groupKey.split('_')[0];
+    
     // Find applicable promotions for this product
     const applicablePromos = promotions.filter((promo) => {
       // Check if promotion applies to this product
@@ -44,8 +49,8 @@ export function applyPromotions(
       if (promo.applyTo === "specific_products" && promo.productIds) {
         try {
           const productIds = JSON.parse(promo.productIds);
-          const applies = productIds.includes(productId);
-          console.log(`${applies ? '✅' : '❌'} Promo "${promo.name}" ${applies ? 'aplica' : 'NO aplica'} a producto ${productId}`);
+          const applies = productIds.includes(realProductId);
+          console.log(`${applies ? '✅' : '❌'} Promo "${promo.name}" ${applies ? 'aplica' : 'NO aplica'} a producto ${realProductId} (precio: ${items[0]?.unitPrice})`);
           console.log('   ProductIds en promo:', productIds);
           return applies;
         } catch (e) {
@@ -64,7 +69,7 @@ export function applyPromotions(
     });
 
     if (applicablePromos.length === 0) {
-      console.log(`⚠️ No hay promociones aplicables para producto ${productId}`);
+      console.log(`⚠️ No hay promociones aplicables para producto ${realProductId} (precio: ${items[0]?.unitPrice})`);
       return;
     }
 

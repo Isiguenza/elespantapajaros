@@ -82,6 +82,24 @@ export async function POST(
         .set({ status: "available", guestCount: 1 })
         .where(eq(tables.id, order.tableId));
       console.log(`✅ Mesa ${order.tableId} liberada`);
+    } else if (order.customerName) {
+      // Para llevar/delivery: marcar TODAS las órdenes hermanas (mismo customerName) como paid+delivered
+      console.log(`🛍️ Para Llevar: marcando órdenes hermanas de "${order.customerName}" como delivered+paid`);
+      await db
+        .update(orders)
+        .set({
+          status: "delivered",
+          paymentStatus: "paid",
+          paymentMethod: paymentMethod,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(orders.customerName, order.customerName),
+            inArray(orders.status, ["pending", "preparing", "ready"])
+          )
+        );
+      console.log(`✅ Órdenes hermanas de "${order.customerName}" marcadas como pagadas`);
     }
 
     // Record cash register transaction

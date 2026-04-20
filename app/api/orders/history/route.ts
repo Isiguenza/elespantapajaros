@@ -19,9 +19,9 @@ export async function GET(request: NextRequest) {
     console.log(`[History] Fetching orders for register ${registerId}, startDate: ${startDate}`);
 
     // Construir condiciones de filtro
+    // Solo filtrar por paymentStatus=paid (sin importar status)
     const conditions = [
       eq(orders.cashRegisterId, registerId),
-      eq(orders.status, "delivered"),
       eq(orders.paymentStatus, "paid"),
     ];
 
