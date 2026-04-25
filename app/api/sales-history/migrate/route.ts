@@ -48,7 +48,7 @@ export async function POST() {
           orderNumber: order.orderNumber,
           cashRegisterId: order.cashRegisterId!,
           tableId: order.tableId,
-          tableNumber: order.table?.number,
+          tableNumber: order.table?.number ? parseInt(order.table.number) : null,
           customerName: order.customerName,
           paymentMethod: order.paymentMethod!,
           subtotal: order.subtotal,
