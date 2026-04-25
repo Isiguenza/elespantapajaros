@@ -60,7 +60,7 @@ export async function PATCH(
     if (order.cashRegisterId) {
       const transaction = await db.query.cashRegisterTransactions.findFirst({
         where: and(
-          eq(cashRegisterTransactions.cashRegisterId, order.cashRegisterId),
+          eq(cashRegisterTransactions.registerId, order.cashRegisterId),
           eq(cashRegisterTransactions.orderId, orderId),
           eq(cashRegisterTransactions.type, "sale")
         ),
@@ -71,7 +71,6 @@ export async function PATCH(
           .update(cashRegisterTransactions)
           .set({ 
             paymentMethod,
-            updatedAt: new Date(),
           })
           .where(eq(cashRegisterTransactions.id, transaction.id));
         
