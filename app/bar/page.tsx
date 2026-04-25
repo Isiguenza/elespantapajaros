@@ -3017,7 +3017,7 @@ export default function BarPage() {
                           onError={(e) => {
                             // Fallback a emoji si la imagen no carga
                             e.currentTarget.style.display = 'none';
-                            e.currentTarget.nextElementSibling.style.display = 'block';
+                            (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
                           }}
                         />
                       ) : null}
