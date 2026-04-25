@@ -104,7 +104,7 @@ export function applyPromotions(
           const sortedItems = [...items].sort((a, b) => a.unitPrice - b.unitPrice);
           let remainingFree = freeItems;
 
-          console.log('📝 Items ordenados por precio:', sortedItems.map(i => ({ name: i.productName, price: i.unitPrice, qty: i.quantity, _index: i._index })));
+          console.log('📝 Items ordenados por precio:', sortedItems.map(i => ({ name: i.productName, price: i.unitPrice, qty: i.quantity })));
 
           sortedItems.forEach((item: any) => {
             if (remainingFree > 0) {
