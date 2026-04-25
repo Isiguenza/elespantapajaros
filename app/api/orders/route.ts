@@ -57,6 +57,35 @@ export async function GET(request: NextRequest) {
       where: whereClause,
       with: { 
         items: {
+          columns: {
+            id: true,
+            orderId: true,
+            productId: true,
+            productName: true,
+            quantity: true,
+            unitPrice: true,
+            subtotal: true,
+            notes: true,
+            frostingId: true,
+            frostingName: true,
+            dryToppingId: true,
+            dryToppingName: true,
+            extraId: true,
+            extraName: true,
+            customModifiers: true,
+            seat: true,
+            course: true,
+            deliveredToTable: true,
+            voided: true,
+            voidReason: true,
+            voidedBy: true,
+            isGuest: true,
+            promotionId: true,
+            promotionName: true,
+            originalPrice: true,
+            promotionDiscount: true,
+            createdAt: true,
+          },
           with: {
             product: {
               columns: {
@@ -75,18 +104,33 @@ export async function GET(request: NextRequest) {
             },
           },
         },
-        table: true, // Incluir información de la mesa
+        table: true,
       },
       orderBy: [desc(orders.createdAt)],
       limit,
     });
 
     console.log("✅ Órdenes encontradas:", result.length);
-    result.forEach(order => {
-      console.log(`  - Orden ${order.id}: status=${order.status}, tableId=${order.tableId}, items=${order.items?.length || 0}`);
-    });
+    
+    // Ensure items have createdAt serialized as ISO string
+    const serialized = result.map(order => ({
+      ...order,
+      items: (order.items || []).map(item => ({
+        ...item,
+        createdAt: item.createdAt instanceof Date 
+          ? item.createdAt.toISOString() 
+          : (item.createdAt ? String(item.createdAt) : null),
+        deliveredToTable: item.deliveredToTable ?? false,
+      })),
+    }));
+    
+    if (serialized.length > 0 && serialized[0].items.length > 0) {
+      const fi = serialized[0].items[0];
+      console.log(`  📋 Sample item keys: ${Object.keys(fi).join(', ')}`);
+      console.log(`  📋 Sample item: createdAt=${fi.createdAt}, deliveredToTable=${fi.deliveredToTable}`);
+    }
 
-    return NextResponse.json(result);
+    return NextResponse.json(serialized);
   } catch (error) {
     console.error("Error fetching orders:", error);
     return NextResponse.json({ error: "Error" }, { status: 500 });

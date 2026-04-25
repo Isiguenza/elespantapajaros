@@ -11,10 +11,9 @@ import Combine
 
 @MainActor
 class OrdersViewModel: ObservableObject {
-    @Published var orders: [Order] = []
-    @Published var previousOrderIds: Set<String> = []
-    @Published var previousItemCounts: [String: Int] = [:] // orderId -> item count
-    @Published var expandedOrderIds: Set<String> = []
+    @Published var batches: [OrderBatch] = [] // Changed from orders to batches
+    @Published var previousBatchIds: Set<String> = [] // Track batch IDs instead of order IDs
+    @Published var expandedBatchIds: Set<String> = [] // Track expanded batches
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var currentTime = Date() // Para forzar actualización del timer
@@ -64,47 +63,36 @@ class OrdersViewModel: ObservableObject {
         uiTimer = nil
     }
     
-    // Fetch orders from API
+    // Fetch orders from API and convert to batches
     func fetchOrders() async {
         do {
-            let newOrders = try await APIService.shared.fetchPreparingOrders()
-            let newOrderIds = Set(newOrders.map { $0.id })
+            let orders = try await APIService.shared.fetchPreparingOrders()
             
-            // Check for new orders
-            let hasNewOrder = newOrders.contains { !previousOrderIds.contains($0.id) }
+            // Convert orders to batches
+            let newBatches = convertOrdersToBatches(orders)
+            let newBatchIds = Set(newBatches.map { $0.id })
             
-            // Check for existing orders with new items added
-            var ordersWithNewItems: [String] = []
-            for order in newOrders {
-                let currentCount = order.items?.filter { $0.voided != true }.count ?? 0
-                let previousCount = previousItemCounts[order.id] ?? 0
-                if previousOrderIds.contains(order.id) && currentCount > previousCount {
-                    ordersWithNewItems.append(order.id)
-                    print("🆕 Order #\(order.orderNumber) has \(currentCount - previousCount) new items!")
-                }
-            }
+            // Check for new batches
+            let hasNewBatch = newBatches.contains { !previousBatchIds.contains($0.id) }
             
-            // Play sound for new orders OR new items added
-            if hasNewOrder || !ordersWithNewItems.isEmpty {
-                print("🔔 Notification: new order=\(hasNewOrder), orders with new items=\(ordersWithNewItems.count)")
+            // Play sound for new batches
+            if hasNewBatch {
+                print("🔔 New batch detected!")
                 soundPlayer.playNotification()
                 
-                // Auto-expand orders that received new items
-                for orderId in ordersWithNewItems {
-                    expandedOrderIds.insert(orderId)
+                // Auto-expand new batches
+                for batch in newBatches where !previousBatchIds.contains(batch.id) {
+                    expandedBatchIds.insert(batch.id)
                 }
             }
             
             // Update tracking
-            previousOrderIds = newOrderIds
-            previousItemCounts = Dictionary(uniqueKeysWithValues: newOrders.map { 
-                ($0.id, $0.items?.filter { $0.voided != true }.count ?? 0)
-            })
+            previousBatchIds = newBatchIds
             
-            // Ordenar por fecha de creación (más recientes primero) para evitar saltos
-            orders = newOrders.sorted { order1, order2 in
-                guard let date1 = ISO8601DateFormatter().date(from: order1.createdAt),
-                      let date2 = ISO8601DateFormatter().date(from: order2.createdAt) else {
+            // Sort batches by creation date (newest first)
+            batches = newBatches.sorted { batch1, batch2 in
+                guard let date1 = parseDate(batch1.createdAt),
+                      let date2 = parseDate(batch2.createdAt) else {
                     return false
                 }
                 return date1 > date2
@@ -117,48 +105,118 @@ class OrdersViewModel: ObservableObject {
         }
     }
     
-    // Mark order as ready
-    func markOrderAsReady(orderId: String, orderNumber: Int) async {
+    // Convert orders to batches (group items by createdAt timestamp)
+    private func convertOrdersToBatches(_ orders: [Order]) -> [OrderBatch] {
+        var allBatches: [OrderBatch] = []
+        
+        for order in orders {
+            // Filter out voided and delivered items
+            let activeItems = (order.items ?? []).filter { 
+                $0.voided != true && $0.deliveredToTable != true 
+            }
+            
+            guard !activeItems.isEmpty else { continue }
+            
+            print("🔍 Order #\(order.orderNumber): \(activeItems.count) active items (total: \(order.items?.count ?? 0))")
+            
+            // Sort items by createdAt
+            let sortedItems = activeItems.sorted { item1, item2 in
+                guard let date1 = item1.createdAt.flatMap({ parseDate($0) }),
+                      let date2 = item2.createdAt.flatMap({ parseDate($0) }) else {
+                    return false
+                }
+                return date1 < date2
+            }
+            
+            // Debug: print all item timestamps
+            for (idx, item) in sortedItems.enumerated() {
+                print("  📋 Item[\(idx)] \(item.productName): createdAt=\(item.createdAt ?? "nil"), deliveredToTable=\(item.deliveredToTable ?? false)")
+            }
+            
+            // Group items into batches (items within 30 seconds of EACH OTHER = same batch)
+            var currentBatch: [OrderItem] = [sortedItems[0]]
+            var lastItemDate = sortedItems[0].createdAt.flatMap { parseDate($0) } ?? Date.distantPast
+            
+            for i in 1..<sortedItems.count {
+                let itemDate = sortedItems[i].createdAt.flatMap { parseDate($0) } ?? Date.distantPast
+                let gap = abs(itemDate.timeIntervalSince(lastItemDate))
+                
+                print("  ⏱️ Gap between item[\(i-1)] and item[\(i)]: \(Int(gap))s")
+                
+                // If within 30 seconds of the LAST item, same batch
+                if gap <= 30 {
+                    currentBatch.append(sortedItems[i])
+                    lastItemDate = itemDate
+                } else {
+                    // Create batch from current items
+                    let batchId = "\(order.id)_\(currentBatch[0].id)"
+                    let batch = OrderBatch(
+                        id: batchId,
+                        orderId: order.id,
+                        orderNumber: order.orderNumber,
+                        items: currentBatch,
+                        createdAt: currentBatch[0].createdAt ?? order.createdAt,
+                        table: order.table,
+                        customerName: order.customerName,
+                        preparationTime: order.preparationTime
+                    )
+                    allBatches.append(batch)
+                    print("  ✅ Batch created: \(currentBatch.count) items")
+                    
+                    // Start new batch
+                    currentBatch = [sortedItems[i]]
+                    lastItemDate = itemDate
+                }
+            }
+            
+            // Add final batch
+            if !currentBatch.isEmpty {
+                let batchId = "\(order.id)_\(currentBatch[0].id)"
+                let batch = OrderBatch(
+                    id: batchId,
+                    orderId: order.id,
+                    orderNumber: order.orderNumber,
+                    items: currentBatch,
+                    createdAt: currentBatch[0].createdAt ?? order.createdAt,
+                    table: order.table,
+                    customerName: order.customerName,
+                    preparationTime: order.preparationTime
+                )
+                allBatches.append(batch)
+                print("  ✅ Final batch: \(currentBatch.count) items")
+            }
+            
+            print("📊 Order #\(order.orderNumber) → \(allBatches.count) total batches")
+        }
+        
+        return allBatches
+    }
+    
+    // Mark batch as ready (delivered to table)
+    func markBatchAsReady(batch: OrderBatch) async {
         do {
-            try await APIService.shared.markOrderAsReady(orderId: orderId)
-            print("✅ Order #\(orderNumber) marked as ready")
+            let itemIds = batch.items.map { $0.id }
+            try await APIService.shared.markBatchAsReady(itemIds: itemIds)
+            print("✅ Batch marked as ready: \(batch.items.count) items")
             await fetchOrders()
         } catch {
-            print("❌ Error marking order as ready: \(error)")
-            errorMessage = "Error al marcar orden como lista"
+            print("❌ Error marking batch as ready: \(error)")
+            errorMessage = "Error al marcar batch como listo"
         }
     }
     
-    // Toggle order expansion
-    func toggleExpand(orderId: String) {
-        if expandedOrderIds.contains(orderId) {
-            expandedOrderIds.remove(orderId)
+    // Toggle batch expansion
+    func toggleExpand(batchId: String) {
+        if expandedBatchIds.contains(batchId) {
+            expandedBatchIds.remove(batchId)
         } else {
-            expandedOrderIds.insert(orderId)
+            expandedBatchIds.insert(batchId)
         }
     }
     
-    // Get order urgency based on elapsed time
-    func getOrderUrgency(order: Order) -> OrderUrgency {
-        guard let createdDate = parseDate(order.createdAt) else {
-            return .normal
-        }
-        
-        let elapsed = Date().timeIntervalSince(createdDate)
-        let minutes = Int(elapsed / 60)
-        
-        if minutes > 15 {
-            return .urgent      // Rojo: >15 min
-        } else if minutes > 10 {
-            return .warning     // Amarillo: 10-15 min
-        } else {
-            return .normal      // Verde: 0-10 min
-        }
-    }
-    
-    // Get elapsed time string
-    func getElapsedTime(order: Order) -> String {
-        guard let createdDate = parseDate(order.createdAt) else {
+    // Get elapsed time string for batch
+    func getElapsedTime(batch: OrderBatch) -> String {
+        guard let createdDate = parseDate(batch.createdAt) else {
             return "0m 0s"
         }
         

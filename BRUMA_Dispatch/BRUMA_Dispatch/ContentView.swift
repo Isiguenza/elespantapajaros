@@ -37,8 +37,8 @@ struct ContentView: View {
                     .padding(.vertical, 20)
                     .background(Color(red: 0.1, green: 0.1, blue: 0.1))
                     
-                    // Orders horizontal scroll
-                    if viewModel.orders.isEmpty {
+                    // Batches horizontal scroll
+                    if viewModel.batches.isEmpty {
                         VStack(spacing: 16) {
                             Spacer()
                             Image(systemName: "checkmark.circle")
@@ -53,21 +53,16 @@ struct ContentView: View {
                     } else {
                         ScrollView(.vertical, showsIndicators: true) {
                             BentoGridLayout(spacing: 16) {
-                                ForEach(viewModel.orders, id: \.id) { order in
-                                    OrderCardView(
-                                        order: order,
-                                        urgency: viewModel.getOrderUrgency(order: order),
-                                        elapsedTime: viewModel.getElapsedTime(order: order),
-                                        isExpanded: viewModel.expandedOrderIds.contains(order.id),
+                                ForEach(viewModel.batches, id: \.id) { batch in
+                                    BatchCardView(
+                                        batch: batch,
+                                        isExpanded: viewModel.expandedBatchIds.contains(batch.id),
                                         onToggleExpand: {
-                                            viewModel.toggleExpand(orderId: order.id)
+                                            viewModel.toggleExpand(batchId: batch.id)
                                         },
                                         onMarkAsReady: {
                                             Task {
-                                                await viewModel.markOrderAsReady(
-                                                    orderId: order.id,
-                                                    orderNumber: order.orderNumber
-                                                )
+                                                await viewModel.markBatchAsReady(batch: batch)
                                             }
                                         },
                                         viewModel: viewModel

@@ -5092,11 +5092,15 @@ export default function BarPage() {
               // Persistir en BD si hay mesa seleccionada
               if (selectedTable) {
                 try {
-                  await fetch(`/api/tables/${selectedTable.id}`, {
+                  const res = await fetch(`/api/tables/${selectedTable.id}`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ guestCount: tempGuestCount }),
                   });
+                  if (res.ok) {
+                    const updatedTable = await res.json();
+                    setSelectedTable(updatedTable);
+                  }
                 } catch (e) {
                   console.error("Error persisting guestCount:", e);
                 }
@@ -5164,11 +5168,15 @@ export default function BarPage() {
               toast.success(`Mesa ${selectedTable?.number} — ${tempGuestCount} persona${tempGuestCount > 1 ? 's' : ''}`);
               if (selectedTable) {
                 try {
-                  await fetch(`/api/tables/${selectedTable.id}`, {
+                  const res = await fetch(`/api/tables/${selectedTable.id}`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ guestCount: tempGuestCount }),
                   });
+                  if (res.ok) {
+                    const updatedTable = await res.json();
+                    setSelectedTable(updatedTable);
+                  }
                 } catch (e) {
                   console.error("Error persisting guestCount:", e);
                 }

@@ -26,7 +26,7 @@ struct Order: Codable, Identifiable {
 }
 
 // MARK: - OrderItem
-struct OrderItem: Codable, Identifiable {
+struct OrderItem: Identifiable {
     let id: String
     let orderId: String
     let productId: String
@@ -44,6 +44,92 @@ struct OrderItem: Codable, Identifiable {
     let customModifiers: String?
     let product: Product?
     let createdAt: String?
+    let deliveredToTable: Bool?
+}
+
+extension OrderItem: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, orderId, productId, productName, quantity, unitPrice, subtotal
+        case notes, voided, course, seat
+        case frostingName, dryToppingName, extraName, customModifiers
+        case product, createdAt, deliveredToTable
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        orderId = try container.decode(String.self, forKey: .orderId)
+        productId = try container.decode(String.self, forKey: .productId)
+        productName = try container.decode(String.self, forKey: .productName)
+        quantity = try container.decode(Int.self, forKey: .quantity)
+        unitPrice = try container.decode(String.self, forKey: .unitPrice)
+        subtotal = try container.decode(String.self, forKey: .subtotal)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        voided = try container.decodeIfPresent(Bool.self, forKey: .voided)
+        course = try container.decodeIfPresent(Int.self, forKey: .course)
+        seat = try container.decodeIfPresent(String.self, forKey: .seat)
+        frostingName = try container.decodeIfPresent(String.self, forKey: .frostingName)
+        dryToppingName = try container.decodeIfPresent(String.self, forKey: .dryToppingName)
+        extraName = try container.decodeIfPresent(String.self, forKey: .extraName)
+        customModifiers = try container.decodeIfPresent(String.self, forKey: .customModifiers)
+        product = try container.decodeIfPresent(Product.self, forKey: .product)
+        deliveredToTable = try container.decodeIfPresent(Bool.self, forKey: .deliveredToTable)
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+    }
+}
+
+// MARK: - OrderBatch (grupo de items enviados juntos)
+struct OrderBatch: Identifiable {
+    let id: String // Unique ID for this batch
+    let orderId: String
+    let orderNumber: Int
+    let items: [OrderItem]
+    let createdAt: String
+    let table: Table?
+    let customerName: String?
+    let preparationTime: Int?
+    
+    // Computed property for urgency
+    var urgency: OrderUrgency {
+        guard let date = parseDate(createdAt) else { return .normal }
+        let elapsed = Date().timeIntervalSince(date) / 60.0
+        
+        if elapsed < 4 { return .normal }
+        if elapsed < 7 { return .attention }
+        if elapsed < 10 { return .warning }
+        return .urgent
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        let formats = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+        ]
+        
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(identifier: "UTC")
+        
+        for format in formats {
+            df.dateFormat = format
+            if let date = df.date(from: dateString) {
+                return date
+            }
+        }
+        
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: dateString) {
+            return date
+        }
+        
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: dateString)
+    }
 }
 
 // MARK: - Product
