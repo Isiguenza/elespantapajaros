@@ -1,4 +1,4 @@
-//
+ //
 //  APIService.swift
 //  BRUMA_Dispatch
 //
@@ -27,7 +27,7 @@ class APIService {
     }
     
     // Cambiar a .production cuando estés listo para usar en producción
-    private let environment: Environment = .production
+    private let environment: Environment = .development
     private var baseURL: String {
         environment.baseURL
     }
