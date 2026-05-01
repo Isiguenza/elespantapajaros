@@ -1266,6 +1266,27 @@ export default function BarPage() {
       const orderType = selectedTable ? `Mesa ${selectedTable.number}` : "Para Llevar";
       toast.success(`${pendingItems.length} items enviados a cocina (${orderType})`);
       
+      // Imprimir comanda en cocina (fire-and-forget)
+      try {
+        const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://localhost:3001";
+        fetch(`${printServerUrl}/print-comanda`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tableNumber: selectedTable?.number || null,
+            orderNumber: orderId?.slice(0, 8) || "",
+            customerName: !selectedTable ? (customerName || null) : null,
+            items: pendingItems.map(item => ({
+              name: item.productName,
+              qty: item.quantity,
+              notes: item.notes || null,
+            })),
+          }),
+        }).catch(err => console.warn("⚠️ Error imprimiendo comanda:", err));
+      } catch (printErr) {
+        console.warn("⚠️ Error imprimiendo comanda:", printErr);
+      }
+
       // Recargar órdenes delivery si es Para Llevar
       if (!selectedTable) {
         fetchDeliveryOrders();
@@ -2373,7 +2394,7 @@ export default function BarPage() {
       }
 
       // Enviar al servidor local de impresión (iMac - IP reservada: 192.168.0.160)
-      const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.160:3001";
+      const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://localhost:3001";
       const response = await fetch(`${printServerUrl}/print`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3228,7 +3249,7 @@ export default function BarPage() {
                     });
 
                     // Imprimir ticket de cortesía con línea de firma
-                    const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.160:3001";
+                    const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://localhost:3001";
                     await fetch(`${printServerUrl}/print-guest`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },

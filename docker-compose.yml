@@ -1,0 +1,18 @@
+services:
+  nextjs:
+    build: .
+    network_mode: host
+    env_file: .env
+    environment:
+      - NEXT_PUBLIC_PRINT_SERVER_URL=http://localhost:3001
+    restart: unless-stopped
+
+  print-server:
+    build: ./print-server
+    network_mode: host
+    environment:
+      - PRINTER_IP=${PRINTER_IP:-192.168.0.200}
+      - PRINTER_PORT=${PRINTER_PORT:-9100}
+      - KITCHEN_PRINTER_IP=${KITCHEN_PRINTER_IP:-YOUR_KITCHEN_PRINTER_IP}
+      - KITCHEN_PRINTER_PORT=${KITCHEN_PRINTER_PORT:-9100}
+    restart: unless-stopped

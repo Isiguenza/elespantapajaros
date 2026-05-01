@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+BRUMA_Dispatch
+print-server
+.env.example
+.windsurf

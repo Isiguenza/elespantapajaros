@@ -6,9 +6,15 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
-const PORT = 3001;
-const PRINTER_IP = "192.168.0.200"; // IP reservada de la impresora
-const PRINTER_PORT = 9100;
+const PORT = process.env.PORT || 3001;
+
+// Ticket printer (receipts)
+const PRINTER_IP = process.env.PRINTER_IP || "192.168.0.200";
+const PRINTER_PORT = parseInt(process.env.PRINTER_PORT || "9100");
+
+// Kitchen printer (comandas)
+const KITCHEN_PRINTER_IP = process.env.KITCHEN_PRINTER_IP || "YOUR_KITCHEN_PRINTER_IP";
+const KITCHEN_PRINTER_PORT = parseInt(process.env.KITCHEN_PRINTER_PORT || "9100");
 
 // Middleware
 app.use(cors());
@@ -581,12 +587,139 @@ app.post('/print-guest', async (req, res) => {
   }
 });
 
+// Función para enviar a la impresora de cocina
+function sendToKitchenPrinter(content) {
+  return new Promise((resolve, reject) => {
+    if (KITCHEN_PRINTER_IP === "YOUR_KITCHEN_PRINTER_IP") {
+      console.warn("⚠️  Kitchen printer IP not configured, skipping print");
+      resolve();
+      return;
+    }
+    const client = new net.Socket();
+    
+    client.connect(KITCHEN_PRINTER_PORT, KITCHEN_PRINTER_IP, () => {
+      console.log("🍳 Conectado a impresora de cocina");
+      client.write(content, "binary");
+    });
+    
+    client.on("data", (data) => {
+      console.log("Respuesta de impresora cocina:", data);
+      client.destroy();
+      resolve();
+    });
+    
+    client.on("close", () => {
+      console.log("Conexión cocina cerrada");
+      resolve();
+    });
+    
+    client.on("error", (err) => {
+      console.error("Error de conexión cocina:", err);
+      reject(err);
+    });
+    
+    setTimeout(() => {
+      client.destroy();
+      resolve();
+    }, 5000);
+  });
+}
+
+// Endpoint para imprimir comanda en cocina
+app.post('/print-comanda', async (req, res) => {
+  try {
+    const { tableNumber, orderNumber, customerName, items } = req.body;
+
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: "No items to print" });
+    }
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+
+    let content = "";
+    
+    // Inicializar impresora
+    content += commands.init;
+    
+    // Header
+    content += commands.alignCenter;
+    content += commands.bold;
+    content += commands.textSizeDouble;
+    content += "COMANDA\n";
+    content += commands.textSizeNormal;
+    content += commands.boldOff;
+    content += "==============================\n";
+    
+    // Mesa y número de orden
+    content += commands.alignLeft;
+    content += commands.bold;
+    content += commands.textSizeDouble;
+    const label = tableNumber ? `MESA ${tableNumber}` : "PARA LLEVAR";
+    const orderText = `#${orderNumber || ''}`;
+    const spaces = Math.max(1, 24 - label.length - orderText.length);
+    content += label + " ".repeat(spaces) + orderText + "\n";
+    content += commands.textSizeNormal;
+    content += commands.boldOff;
+    
+    // Nombre del cliente (si es delivery con plataforma)
+    if (customerName) {
+      content += commands.alignCenter;
+      content += commands.bold;
+      content += customerName + "\n";
+      content += commands.boldOff;
+    }
+    
+    content += commands.alignLeft;
+    content += "------------------------------\n";
+    content += commands.feedLine;
+    
+    // Items
+    content += commands.textSizeDouble;
+    for (const item of items) {
+      content += `${item.qty}x ${item.name}\n`;
+      if (item.notes) {
+        content += commands.textSizeNormal;
+        content += `   > ${item.notes}\n`;
+        content += commands.textSizeDouble;
+      }
+    }
+    content += commands.textSizeNormal;
+    
+    content += commands.feedLine;
+    content += "------------------------------\n";
+    content += commands.alignCenter;
+    content += timeStr + "\n";
+    content += "==============================\n";
+    
+    // Espacio y corte
+    content += commands.feedLine;
+    content += commands.feedLine;
+    content += commands.feed;
+    content += commands.cut;
+
+    // Enviar a la impresora de cocina
+    await sendToKitchenPrinter(content);
+
+    console.log(`🍳 Comanda impresa: ${label} - ${items.length} items`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error printing comanda:", error);
+    res.status(500).json({ error: "Error al imprimir comanda" });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', printer: `${PRINTER_IP}:${PRINTER_PORT}` });
+  res.json({ 
+    status: 'ok', 
+    ticketPrinter: `${PRINTER_IP}:${PRINTER_PORT}`,
+    kitchenPrinter: `${KITCHEN_PRINTER_IP}:${KITCHEN_PRINTER_PORT}` 
+  });
 });
 
 app.listen(PORT, () => {
   console.log(`🖨️  Servidor de impresión corriendo en http://localhost:${PORT}`);
-  console.log(`📡 Impresora configurada en ${PRINTER_IP}:${PRINTER_PORT}`);
+  console.log(`📡 Impresora tickets: ${PRINTER_IP}:${PRINTER_PORT}`);
+  console.log(`🍳 Impresora cocina: ${KITCHEN_PRINTER_IP}:${KITCHEN_PRINTER_PORT}`);
 });
