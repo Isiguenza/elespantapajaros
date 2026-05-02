@@ -210,6 +210,7 @@ export default function OrderHistoryPage() {
           >
             ➕ Añadir Orden Manual
           </Button>
+          {/* DISABLED: Botón peligroso que borra órdenes
           <Button
             onClick={handleConsolidateDuplicates}
             disabled={consolidating}
@@ -218,6 +219,7 @@ export default function OrderHistoryPage() {
           >
             {consolidating ? "Consolidando..." : "🔗 Consolidar Duplicados"}
           </Button>
+          */}
           <Badge variant="outline" className="text-sm">
             {orders.length} órdenes
           </Badge>

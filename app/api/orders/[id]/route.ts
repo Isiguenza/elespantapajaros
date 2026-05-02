@@ -63,6 +63,16 @@ export async function DELETE(
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
+    // CRITICAL LOGGING: Track all order deletions
+    console.error(`🚨 DELETE ORDER CALLED - ID: ${id}, Order#: ${order.orderNumber}, Total: ${order.total}, PaymentStatus: ${order.paymentStatus}, Table: ${order.tableId}, Customer: ${order.customerName}, CreatedAt: ${order.createdAt}`);
+    console.error(`🚨 DELETE SOURCE: ${request.headers.get('referer') || 'unknown'}, User-Agent: ${request.headers.get('user-agent')}`);
+    
+    // Get request body if any (for reason tracking)
+    const body = await request.json().catch(() => ({}));
+    if (body.reason) {
+      console.error(`🚨 DELETE REASON: ${body.reason}`);
+    }
+
     // Revertir totales de la caja registradora
     const txns = await db.query.cashRegisterTransactions.findMany({
       where: eq(cashRegisterTransactions.orderId, id),

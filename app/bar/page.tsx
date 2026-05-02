@@ -1123,24 +1123,15 @@ export default function BarPage() {
     }
 
     try {
-      // Si hay mesa, eliminar físicamente todas las órdenes de la mesa (no dejar rastro)
+      // Solo eliminar la orden ACTUAL de esta sesión (currentOrderId)
+      // NO tocar órdenes anteriores de la mesa
+      if (currentOrderId) {
+        console.log(`🗑️ Liberando sesión actual - Eliminando orden: ${currentOrderId}`);
+        await fetch(`/api/orders/${currentOrderId}`, { method: "DELETE" });
+      }
+      
+      // Si hay mesa, actualizar estado a "available" y resetear guestCount
       if (selectedTable) {
-        console.log("🗑️ Liberando mesa (DELETE físico):", selectedTable.id);
-        
-        // Buscar todas las órdenes activas de esta mesa
-        const ordersRes = await fetch(`/api/orders?tableId=${selectedTable.id}&status=preparing,ready,pending,delivered`);
-        if (ordersRes.ok) {
-          const tableOrders = await ordersRes.json();
-          console.log(`📦 Órdenes a eliminar: ${tableOrders.length}`);
-          
-          // Eliminar físicamente cada orden
-          for (const order of tableOrders) {
-            console.log(`🗑️ Eliminando orden ${order.id}`);
-            await fetch(`/api/orders/${order.id}`, { method: "DELETE" });
-          }
-        }
-        
-        // Actualizar estado de mesa a "available" y resetear guestCount
         await fetch(`/api/tables/${selectedTable.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -1150,11 +1141,6 @@ export default function BarPage() {
             guestCount: 1,
           }),
         });
-      }
-      
-      // Si hay orden creada (Para Llevar), eliminar físicamente
-      if (currentOrderId && !selectedTable) {
-        await fetch(`/api/orders/${currentOrderId}`, { method: "DELETE" });
       }
 
       toast.success(`${orderType} liberada`);
@@ -2904,6 +2890,7 @@ export default function BarPage() {
                       <CookingPot className="size-4 mr-2" />
                       Buscar Órdenes
                     </DropdownMenuItem>
+                    {/* DISABLED: Este botón borra órdenes de forma agresiva y causó pérdida de datos
                     <DropdownMenuItem
                       onClick={async () => {
                         if (!confirm("¿Consolidar órdenes duplicadas? Esto juntará todas las órdenes activas del mismo cliente/mesa en una sola orden.")) {
@@ -2929,6 +2916,7 @@ export default function BarPage() {
                       <span className="mr-2">🔗</span>
                       Consolidar Duplicados
                     </DropdownMenuItem>
+                    */}
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button 

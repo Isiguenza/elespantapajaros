@@ -281,6 +281,7 @@ export default function DispatchPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Despacho</h1>
         <div className="flex items-center gap-3">
+          {/* DISABLED: Botón peligroso que borra órdenes
           <Button
             onClick={handleConsolidateDuplicates}
             disabled={consolidating}
@@ -289,6 +290,7 @@ export default function DispatchPage() {
           >
             {consolidating ? "Consolidando..." : "🔗 Consolidar Duplicados"}
           </Button>
+          */}
           <Badge variant="outline" className="gap-1">
             <CookingPot className="size-3" />
             {preparingOrders.length} preparando
