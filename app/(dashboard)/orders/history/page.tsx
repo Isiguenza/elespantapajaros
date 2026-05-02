@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { MagnifyingGlass, Eye, Receipt, ShoppingBag, Trash } from "@phosphor-icons/react";
+import { MagnifyingGlass, Eye, Receipt, ShoppingBag, Trash, Printer } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { format, isToday, isYesterday } from "date-fns";
 import { es } from "date-fns/locale";
@@ -94,6 +94,59 @@ export default function OrderHistoryPage() {
       console.error("Error fetching orders:", error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function printDaySummary(dayOrders: Order[], dateLabel: string) {
+    try {
+      // Calcular totales por método de pago
+      const totals = {
+        cash: 0,
+        transfer: 0,
+        terminal_mercadopago: 0,
+        platform_delivery: 0,
+      };
+
+      let totalSales = 0;
+      let totalTips = 0;
+
+      for (const order of dayOrders) {
+        const orderTotal = parseFloat(order.total || "0");
+        const tip = parseFloat((order as any).tip || "0");
+        totalSales += orderTotal;
+        totalTips += tip;
+
+        const method = order.paymentMethod as keyof typeof totals;
+        if (method && totals[method] !== undefined) {
+          totals[method] += orderTotal;
+        }
+      }
+
+      const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.109:3001";
+      const res = await fetch(`${printServerUrl}/print-summary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: new Date().toISOString(),
+          registerName: `Historial - ${dateLabel}`,
+          totalOrders: dayOrders.length,
+          totalSales: totalSales.toFixed(2),
+          cashSales: totals.cash.toFixed(2),
+          transferSales: totals.transfer.toFixed(2),
+          terminalSales: totals.terminal_mercadopago.toFixed(2),
+          platformSales: totals.platform_delivery.toFixed(2),
+          totalTips: totalTips.toFixed(2),
+        }),
+      });
+
+      if (res.ok) {
+        toast.success("Resumen enviado a impresora");
+      } else {
+        toast.error("Error al imprimir resumen");
+      }
+    } catch (error) {
+      console.error("Error printing summary:", error);
+      toast.error("Error al imprimir resumen");
     }
   }
 
@@ -253,6 +306,15 @@ export default function OrderHistoryPage() {
               <div className="flex items-center justify-between mb-3 sticky top-0 bg-background z-10 py-2">
                 <h2 className="text-lg font-semibold">{group.label}</h2>
                 <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => printDaySummary(group.orders, group.label)}
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Printer className="size-4" />
+                    Imprimir Resumen
+                  </Button>
                   <span className="text-sm text-muted-foreground">
                     {group.orders.length} orden{group.orders.length !== 1 ? "es" : ""}
                   </span>
