@@ -628,7 +628,7 @@ function sendToKitchenPrinter(content) {
 // Endpoint para imprimir comanda en cocina
 app.post('/print-comanda', async (req, res) => {
   try {
-    const { tableNumber, orderNumber, customerName, items } = req.body;
+    const { tableNumber, orderNumber, customerName, items, guestCount } = req.body;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ error: "No items to print" });
@@ -662,6 +662,14 @@ app.post('/print-comanda', async (req, res) => {
     content += commands.textSizeNormal;
     content += commands.boldOff;
     
+    // Guest count (pax)
+    if (guestCount && guestCount > 1) {
+      content += commands.alignCenter;
+      content += commands.bold;
+      content += `${guestCount} PAX\n`;
+      content += commands.boldOff;
+    }
+    
     // Nombre del cliente (si es delivery con plataforma)
     if (customerName) {
       content += commands.alignCenter;
@@ -671,23 +679,110 @@ app.post('/print-comanda', async (req, res) => {
     }
     
     content += commands.alignLeft;
-    content += "------------------------------\n";
+    content += "==============================\n";
     content += commands.feedLine;
     
-    // Items
-    content += commands.textSizeDouble;
-    for (const item of items) {
-      content += `${item.qty}x ${item.name}\n`;
-      if (item.notes) {
-        content += commands.textSizeNormal;
-        content += `   > ${item.notes}\n`;
-        content += commands.textSizeDouble;
+    // Separar bebidas y alimentos
+    const beverages = items.filter(item => item.isBeverage);
+    const food = items.filter(item => !item.isBeverage);
+    
+    // 1. BEBIDAS PRIMERO
+    if (beverages.length > 0) {
+      content += commands.bold;
+      content += "BEBIDAS\n";
+      content += commands.boldOff;
+      content += "------------------------------\n";
+      content += commands.textSizeDouble;
+      
+      for (const item of beverages) {
+        content += `${item.qty}x ${item.name}\n`;
+        if (item.notes) {
+          content += commands.textSizeNormal;
+          content += `   > ${item.notes}\n`;
+          content += commands.textSizeDouble;
+        }
+      }
+      
+      content += commands.textSizeNormal;
+      if (food.length > 0) {
+        content += commands.feedLine;
+        content += "==============================\n";
+        content += commands.feedLine;
       }
     }
-    content += commands.textSizeNormal;
+    
+    // 2. ALIMENTOS POR ASIENTO Y TIEMPO
+    if (food.length > 0) {
+      // Agrupar por asiento
+      const bySeat = {};
+      for (const item of food) {
+        const seat = item.seat || 'C';
+        if (!bySeat[seat]) bySeat[seat] = [];
+        bySeat[seat].push(item);
+      }
+      
+      // Ordenar asientos (C al final)
+      const seats = Object.keys(bySeat).sort((a, b) => {
+        if (a === 'C') return 1;
+        if (b === 'C') return -1;
+        return a.localeCompare(b);
+      });
+      
+      for (let i = 0; i < seats.length; i++) {
+        const seat = seats[i];
+        const seatItems = bySeat[seat];
+        
+        // Header de asiento
+        content += commands.bold;
+        content += seat === 'C' ? 'COMPARTIDO\n' : `ASIENTO ${seat}\n`;
+        content += commands.boldOff;
+        content += "------------------------------\n";
+        
+        // Agrupar por tiempo dentro del asiento
+        const byCourse = {};
+        for (const item of seatItems) {
+          const course = item.course || 1;
+          if (!byCourse[course]) byCourse[course] = [];
+          byCourse[course].push(item);
+        }
+        
+        const courses = Object.keys(byCourse).sort((a, b) => a - b);
+        
+        for (let j = 0; j < courses.length; j++) {
+          const course = courses[j];
+          const courseItems = byCourse[course];
+          
+          // Header de tiempo (solo si hay múltiples tiempos)
+          if (courses.length > 1) {
+            content += commands.bold;
+            content += `  T${course}\n`;
+            content += commands.boldOff;
+          }
+          
+          // Items
+          content += commands.textSizeDouble;
+          for (const item of courseItems) {
+            content += `${item.qty}x ${item.name}\n`;
+            if (item.notes) {
+              content += commands.textSizeNormal;
+              content += `   > ${item.notes}\n`;
+              content += commands.textSizeDouble;
+            }
+          }
+          content += commands.textSizeNormal;
+        }
+        
+        // Separador entre asientos
+        if (i < seats.length - 1) {
+          content += commands.feedLine;
+          content += "- - - - - - - - - - - - - - -\n";
+          content += commands.feedLine;
+        }
+      }
+    }
     
     content += commands.feedLine;
-    content += "------------------------------\n";
+    content += "==============================\n";
     content += commands.alignCenter;
     content += timeStr + "\n";
     content += "==============================\n";

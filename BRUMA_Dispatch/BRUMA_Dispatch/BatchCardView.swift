@@ -29,6 +29,17 @@ struct BatchCardView: View {
                                 .padding(.vertical, 6)
                                 .background(Color.white.opacity(0.2))
                                 .clipShape(Capsule())
+                            
+                            // Guest count (pax)
+                            if let guestCount = table.guestCount, guestCount > 1 {
+                                Text("\(guestCount) pax")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.blue.opacity(0.3))
+                                    .clipShape(Capsule())
+                            }
                         } else {
                             Text("Para Llevar")
                                 .font(.system(size: 14, weight: .semibold))
@@ -89,89 +100,82 @@ struct BatchCardView: View {
             .background(urgencyColor(batch.urgency))
             
             VStack(alignment: .leading, spacing: 12) {
-                // Items
-                let visibleItems = isExpanded ? batch.items : Array(batch.items.prefix(3))
+                // Separate beverages and food
+                let beverages = batch.items.filter { $0.product?.category?.isBeverage == true }
+                let food = batch.items.filter { $0.product?.category?.isBeverage != true }
                 
-                ForEach(visibleItems) { item in
-                    HStack(alignment: .top, spacing: 12) {
-                        // Cantidad
-                        Text("\(item.quantity)x")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 40, alignment: .leading)
+                // 1. BEBIDAS PRIMERO (todas juntas)
+                if !beverages.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("BEBIDAS")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.cyan)
+                            .padding(.bottom, 4)
                         
-                        // Nombre del producto y modificadores
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.productName)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                            
-                            // Modificadores
-                            if let frosting = item.frostingName {
-                                Text("Frosting: \(frosting)")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white.opacity(0.7))
-                            }
-                            
-                            if let topping = item.dryToppingName {
-                                Text("Topping: \(topping)")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white.opacity(0.7))
-                            }
-                            
-                            if let extra = item.extraName {
-                                Text("Extra: \(extra)")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white.opacity(0.7))
-                            }
-                            
-                            // Custom modifiers
-                            if let customMods = item.customModifiers,
-                               let modifiers = viewModel.parseCustomModifiers(customMods) {
-                                ForEach(Array(modifiers.keys.sorted()), id: \.self) { stepName in
-                                    if let modifier = modifiers[stepName] {
-                                        let optionNames = modifier.options.map { $0.name }.joined(separator: ", ")
-                                        Text("\(stepName): \(optionNames)")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(.white.opacity(0.7))
-                                    }
-                                }
-                            }
-                            
-                            // Notas
-                            if let notes = item.notes, !notes.isEmpty {
-                                Text("Nota: \(notes)")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.yellow)
-                                    .padding(.top, 2)
+                        ForEach(beverages) { item in
+                            itemRow(item)
+                            if item.id != beverages.last?.id {
+                                Divider().background(Color.white.opacity(0.1))
                             }
                         }
-                        
-                        Spacer()
                     }
-                    .padding(.vertical, 8)
                     
-                    if item.id != visibleItems.last?.id {
+                    if !food.isEmpty {
                         Divider()
-                            .background(Color.white.opacity(0.1))
+                            .background(Color.white.opacity(0.2))
+                            .padding(.vertical, 8)
                     }
                 }
                 
-                // Expand/Collapse button
-                if batch.items.count > 3 {
-                    Button(action: onToggleExpand) {
-                        HStack {
-                            Spacer()
-                            Text(isExpanded ? "Ver menos" : "Ver más (\(batch.items.count - 3) items)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.blue)
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 12))
-                                .foregroundColor(.blue)
-                            Spacer()
+                // 2. ALIMENTOS POR ASIENTO Y TIEMPO
+                if !food.isEmpty {
+                    let groupedBySeat = Dictionary(grouping: food) { $0.seat ?? "C" }
+                    let sortedSeats = groupedBySeat.keys.sorted { s1, s2 in
+                        if s1 == "C" { return false }
+                        if s2 == "C" { return true }
+                        return s1 < s2
+                    }
+                    
+                    ForEach(sortedSeats, id: \.self) { seat in
+                        if let seatItems = groupedBySeat[seat] {
+                            VStack(alignment: .leading, spacing: 4) {
+                                // Seat header
+                                HStack(spacing: 4) {
+                                    Image(systemName: seat == "C" ? "fork.knife" : "person.fill")
+                                        .font(.system(size: 11))
+                                    Text(seat == "C" ? "COMPARTIDO" : "ASIENTO \(seat)")
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                                .foregroundColor(seat == "C" ? .orange : .blue)
+                                .padding(.bottom, 4)
+                                
+                                // Group by course within seat
+                                let groupedByCourse = Dictionary(grouping: seatItems) { $0.course ?? 1 }
+                                let sortedCourses = groupedByCourse.keys.sorted()
+                                
+                                ForEach(sortedCourses, id: \.self) { course in
+                                    if let courseItems = groupedByCourse[course] {
+                                        // Course header (only if multiple courses)
+                                        if sortedCourses.count > 1 {
+                                            Text("Tiempo \(course)")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(.green.opacity(0.8))
+                                                .padding(.leading, 8)
+                                                .padding(.top, 4)
+                                        }
+                                        
+                                        ForEach(courseItems) { item in
+                                            itemRow(item)
+                                            if item.id != courseItems.last?.id || course != sortedCourses.last {
+                                                Divider().background(Color.white.opacity(0.1))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.bottom, seat != sortedSeats.last ? 12 : 0)
                         }
                     }
-                    .padding(.top, 8)
                 }
                 
                 // Slide to confirm
@@ -245,5 +249,66 @@ struct BatchCardView: View {
         case .urgent:
             return Color(red: 0.9, green: 0.2, blue: 0.2)
         }
+    }
+    
+    @ViewBuilder
+    private func itemRow(_ item: OrderItem) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            // Cantidad
+            Text("\(item.quantity)x")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 40, alignment: .leading)
+            
+            // Nombre del producto y modificadores
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.productName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                
+                // Modificadores
+                if let frosting = item.frostingName {
+                    Text("Frosting: \(frosting)")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                
+                if let topping = item.dryToppingName {
+                    Text("Topping: \(topping)")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                
+                if let extra = item.extraName {
+                    Text("Extra: \(extra)")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                
+                // Custom modifiers
+                if let customMods = item.customModifiers,
+                   let modifiers = viewModel.parseCustomModifiers(customMods) {
+                    ForEach(Array(modifiers.keys.sorted()), id: \.self) { stepName in
+                        if let modifier = modifiers[stepName] {
+                            let optionNames = modifier.options.map { $0.name }.joined(separator: ", ")
+                            Text("\(stepName): \(optionNames)")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                    }
+                }
+                
+                // Notas
+                if let notes = item.notes, !notes.isEmpty {
+                    Text("Nota: \(notes)")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.yellow)
+                        .padding(.top, 2)
+                }
+            }
+            
+            Spacer()
+        }
+        .padding(.vertical, 8)
     }
 }

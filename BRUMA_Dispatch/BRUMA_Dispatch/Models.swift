@@ -151,6 +151,7 @@ struct Table: Codable {
     let id: String
     let number: String
     let status: String
+    let guestCount: Int?
 }
 
 // MARK: - Custom Modifiers
