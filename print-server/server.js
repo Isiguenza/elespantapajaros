@@ -5,6 +5,9 @@ const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
+// Set timezone to Mexico City
+process.env.TZ = 'America/Mexico_City';
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -167,8 +170,8 @@ app.post('/print', async (req, res) => {
     
     // Fecha y hora centrada
     const now = new Date();
-    const dateStr = now.toLocaleDateString("es-MX");
-    const timeStr = now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+    const dateStr = now.toLocaleDateString("es-MX", { timeZone: "America/Mexico_City" });
+    const timeStr = now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" });
     content += `${dateStr} ${timeStr}\n`;
     content += commands.feedLine;
     content += commands.feedLine;
@@ -380,11 +383,13 @@ app.post('/print-summary', async (req, res) => {
     const dateStr = dateObj.toLocaleDateString('es-MX', { 
       day: '2-digit', 
       month: '2-digit', 
-      year: 'numeric' 
+      year: 'numeric',
+      timeZone: 'America/Mexico_City'
     });
     const timeStr = dateObj.toLocaleTimeString('es-MX', { 
       hour: '2-digit', 
-      minute: '2-digit' 
+      minute: '2-digit',
+      timeZone: 'America/Mexico_City'
     });
     content += `${dateStr} - ${timeStr}\n`;
     content += `${registerName}\n`;
@@ -516,8 +521,8 @@ app.post('/print-guest', async (req, res) => {
     console.log('🎁 Imprimiendo ticket de cortesía:', items);
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Mexico_City' });
+    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
 
     let content = "";
     content += commands.init;
@@ -635,7 +640,7 @@ app.post('/print-comanda', async (req, res) => {
     }
 
     const now = new Date();
-    const timeStr = now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+    const timeStr = now.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" });
 
     let content = "";
     

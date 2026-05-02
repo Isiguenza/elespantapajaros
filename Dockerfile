@@ -21,6 +21,7 @@ FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV TZ=America/Mexico_City
 
 # Copy standalone output
 COPY --from=builder /app/.next/standalone ./
