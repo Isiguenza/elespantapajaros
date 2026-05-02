@@ -99,6 +99,30 @@ export default function OrderHistoryPage() {
 
   async function printDaySummary(dayOrders: Order[], dateLabel: string) {
     try {
+      // Obtener las cajas registradoras únicas de estas órdenes
+      const registerIds = [...new Set(dayOrders.map(o => o.cashRegisterId).filter(Boolean))];
+      
+      if (registerIds.length === 0) {
+        toast.error("No hay datos de caja para este día");
+        return;
+      }
+
+      // Obtener transacciones de todas las cajas de ese día
+      let allTransactions: any[] = [];
+      for (const registerId of registerIds) {
+        const res = await fetch(`/api/cash-register/${registerId}/report`);
+        if (res.ok) {
+          const data = await res.json();
+          allTransactions = allTransactions.concat(data.transactions || []);
+        }
+      }
+
+      // Filtrar solo transacciones de tipo "sale" de las órdenes del día
+      const orderIds = new Set(dayOrders.map(o => o.id));
+      const salesTransactions = allTransactions.filter(
+        t => t.type === "sale" && orderIds.has(t.orderId)
+      );
+
       // Calcular totales por método de pago
       const totals = {
         cash: 0,
@@ -108,19 +132,21 @@ export default function OrderHistoryPage() {
       };
 
       let totalSales = 0;
-      let totalTips = 0;
 
-      for (const order of dayOrders) {
-        const orderTotal = parseFloat(order.total || "0");
-        const tip = parseFloat((order as any).tip || "0");
-        totalSales += orderTotal;
-        totalTips += tip;
+      for (const txn of salesTransactions) {
+        const amount = parseFloat(txn.amount || "0");
+        totalSales += amount;
 
-        const method = order.paymentMethod as keyof typeof totals;
+        const method = txn.paymentMethod as keyof typeof totals;
         if (method && totals[method] !== undefined) {
-          totals[method] += orderTotal;
+          totals[method] += amount;
         }
       }
+
+      // Calcular propinas totales de las órdenes
+      const totalTips = dayOrders.reduce((sum, order) => {
+        return sum + parseFloat((order as any).tip || "0");
+      }, 0);
 
       const printServerUrl = process.env.NEXT_PUBLIC_PRINT_SERVER_URL || "http://192.168.0.109:3001";
       const res = await fetch(`${printServerUrl}/print-summary`, {
