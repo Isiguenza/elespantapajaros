@@ -667,13 +667,12 @@ app.post('/print-comanda', async (req, res) => {
     content += commands.textSizeNormal;
     content += commands.boldOff;
     
-    // Guest count (pax)
-    if (guestCount && guestCount > 1) {
-      content += commands.alignCenter;
-      content += commands.bold;
-      content += `${guestCount} PAX\n`;
-      content += commands.boldOff;
-    }
+    // Guest count (pax) - SIEMPRE mostrar
+    const paxCount = guestCount || 1;
+    content += commands.alignCenter;
+    content += commands.bold;
+    content += `${paxCount} PAX\n`;
+    content += commands.boldOff;
     
     // Nombre del cliente (si es delivery con plataforma)
     if (customerName) {
@@ -697,18 +696,16 @@ app.post('/print-comanda', async (req, res) => {
       content += "BEBIDAS\n";
       content += commands.boldOff;
       content += "------------------------------\n";
-      content += commands.textSizeDouble;
       
       for (const item of beverages) {
         content += `${item.qty}x ${item.name}\n`;
         if (item.notes) {
-          content += commands.textSizeNormal;
+          content += commands.bold;
           content += `   > ${item.notes}\n`;
-          content += commands.textSizeDouble;
+          content += commands.boldOff;
         }
       }
       
-      content += commands.textSizeNormal;
       if (food.length > 0) {
         content += commands.feedLine;
         content += "==============================\n";
@@ -765,16 +762,14 @@ app.post('/print-comanda', async (req, res) => {
           }
           
           // Items
-          content += commands.textSizeDouble;
           for (const item of courseItems) {
             content += `${item.qty}x ${item.name}\n`;
             if (item.notes) {
-              content += commands.textSizeNormal;
+              content += commands.bold;
               content += `   > ${item.notes}\n`;
-              content += commands.textSizeDouble;
+              content += commands.boldOff;
             }
           }
-          content += commands.textSizeNormal;
         }
         
         // Separador entre asientos
