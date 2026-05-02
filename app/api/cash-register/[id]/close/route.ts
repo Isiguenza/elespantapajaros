@@ -53,16 +53,11 @@ export async function POST(
       );
     }
 
-    // Get start of day for filtering orders
-    const registerOpenedAt = new Date(register.openedAt);
-    registerOpenedAt.setHours(0, 0, 0, 0);
-
-    // Get all paid orders for this register from today (sin importar status)
+    // Get all paid orders for this register session (scoped by cashRegisterId, no date filter)
     const paidOrders = await db.query.orders.findMany({
       where: and(
         eq(orders.cashRegisterId, id),
-        eq(orders.paymentStatus, "paid"),
-        gte(orders.createdAt, registerOpenedAt)
+        eq(orders.paymentStatus, "paid")
       ),
     });
 
@@ -109,6 +104,7 @@ export async function POST(
         expectedCash: expectedCash.toFixed(2),
         difference: difference.toFixed(2),
         totalSales: totalSales.toFixed(2),
+        totalOrders: paidOrders.length,
         cashSales: cashSales.toFixed(2),
         terminalSales: terminalSales.toFixed(2),
         transferSales: transferSales.toFixed(2),

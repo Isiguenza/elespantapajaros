@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, lt, sql } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,19 +18,17 @@ export async function GET(request: NextRequest) {
 
     console.log(`[History] Fetching orders for register ${registerId}, startDate: ${startDate}`);
 
-    // Construir condiciones de filtro
-    // Solo filtrar por paymentStatus=paid (sin importar status)
-    const conditions = [
+    // Conditions: paid orders for this register
+    const conditions: any[] = [
       eq(orders.cashRegisterId, registerId),
       eq(orders.paymentStatus, "paid"),
     ];
 
-    // Agregar filtro de fecha si se proporciona
-    if (startDate) {
-      conditions.push(gte(orders.createdAt, new Date(startDate)));
-    }
+    // All paid orders for this register — no date filtering needed.
+    // The cashRegisterId already scopes orders to the register session.
+    // Only add date filter if explicitly requested AND no registerId-based scoping is desired.
+    // Since registerId already scopes it, we just fetch all paid orders for this register.
 
-    // Obtener órdenes completadas y pagadas
     const completedOrders = await db.query.orders.findMany({
       where: and(...conditions),
       with: {
@@ -39,7 +37,7 @@ export async function GET(request: NextRequest) {
       orderBy: (orders, { desc }) => [desc(orders.createdAt)],
     });
 
-    console.log(`[History] Found ${completedOrders.length} orders`);
+    console.log(`[History] Found ${completedOrders.length} paid orders for register ${registerId}`);
     
     // Aplicar descuento del 27% a órdenes de platform_delivery
     const ordersWithDiscount = completedOrders.map(order => {
@@ -57,22 +55,6 @@ export async function GET(request: NextRequest) {
       }
       return order;
     });
-    
-    // Filtrar en el backend también para asegurar solo órdenes del día actual
-    if (startDate) {
-      const today = new Date(startDate);
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      const filteredOrders = ordersWithDiscount.filter(order => {
-        const orderDate = new Date(order.createdAt);
-        return orderDate >= today && orderDate < tomorrow;
-      });
-      
-      console.log(`[History] After date filter: ${filteredOrders.length} orders`);
-      return NextResponse.json(filteredOrders);
-    }
 
     return NextResponse.json(ordersWithDiscount);
   } catch (error) {
