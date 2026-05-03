@@ -4,6 +4,7 @@ import Combine
 @MainActor
 class TablesViewModel: ObservableObject {
     @Published var tables: [Table] = []
+    @Published var deliveryOrders: [Order] = []
     @Published var loading: Bool = false
     @Published var selectedTable: Table?
     @Published var showCustomerNameDialog: Bool = false
@@ -26,6 +27,26 @@ class TablesViewModel: ObservableObject {
         loading = false
     }
     
+    func fetchDeliveryOrders() async {
+        do {
+            // Fetch all unpaid Para Llevar orders (no table, not paid)
+            let allOrders = try await APIService.shared.fetchDeliveryOrders()
+            // Group by customer name to consolidate multiple orders from same customer
+            var grouped: [String: Order] = [:]
+            for order in allOrders {
+                let key = order.customerName ?? "Sin Nombre"
+                if grouped[key] == nil {
+                    grouped[key] = order
+                }
+            }
+            deliveryOrders = Array(grouped.values).sorted {
+                ($0.createdAt ?? "") > ($1.createdAt ?? "")
+            }
+        } catch {
+            print("Error fetching delivery orders:", error)
+        }
+    }
+    
     func selectTable(_ table: Table) {
         selectedTable = table
         isParaLlevar = false
@@ -46,6 +67,20 @@ class TablesViewModel: ObservableObject {
     
     func confirmGuestCount() {
         showGuestCountDialog = false
+        
+        // Save guest count to database
+        if let table = selectedTable {
+            Task {
+                do {
+                    let _ = try await APIService.shared.updateTable(
+                        tableId: table.id,
+                        body: ["guestCount": guestCount]
+                    )
+                } catch {
+                    print("Error updating guest count:", error)
+                }
+            }
+        }
     }
     
     func reset() {

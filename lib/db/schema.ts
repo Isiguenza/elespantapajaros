@@ -681,3 +681,9 @@ export const salesHistory = pgTable("sales_history", {
   createdAt: timestamp("created_at").notNull(), // Fecha original de la orden
   paidAt: timestamp("paid_at").defaultNow().notNull(), // Fecha en que se pagó
 });
+
+// User profiles relations
+export const userProfilesRelations = relations(userProfiles, ({ many }) => ({
+  orders: many(orders),
+  cashRegisters: many(cashRegisters),
+}));

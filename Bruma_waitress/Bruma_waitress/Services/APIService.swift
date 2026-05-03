@@ -11,13 +11,12 @@ class APIService {
     
     // MARK: - Auth
     
-    func verifyPin(employeeCode: String, pin: String) async throws -> Employee {
+    func verifyPin(pin: String) async throws -> Employee {
         let url = URL(string: "\(baseURL)/api/employees/verify-pin")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "identifier": employeeCode,
             "pin": pin
         ])
         
@@ -84,6 +83,20 @@ class APIService {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw APIError.serverError
         }
+    }
+    
+    func updateTable(tableId: String, body: [String: Any]) async throws -> Table {
+        let url = URL(string: "\(baseURL)/api/tables/\(tableId)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw APIError.serverError
+        }
+        return try JSONDecoder().decode(Table.self, from: data)
     }
     
     // MARK: - Products & Categories
@@ -154,6 +167,16 @@ class APIService {
     
     func fetchActiveOrders() async throws -> [Order] {
         let url = URL(string: "\(baseURL)/api/orders?status=preparing")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw APIError.serverError
+        }
+        return try JSONDecoder().decode([Order].self, from: data)
+    }
+    
+    func fetchDeliveryOrders() async throws -> [Order] {
+        // Fetch Para Llevar orders: no table, not paid, active statuses
+        let url = URL(string: "\(baseURL)/api/orders?status=preparing,ready,pending&noTable=true&paymentStatus=pending")!
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw APIError.serverError

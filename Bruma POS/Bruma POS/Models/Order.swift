@@ -13,6 +13,7 @@ struct Order: Codable, Identifiable {
     let employeeName: String?
     let createdAt: String?
     let items: [OrderItem]?
+    let splitBillData: String?
     
     var displayName: String {
         if let name = customerName, !name.isEmpty {
@@ -40,6 +41,19 @@ struct Order: Codable, Identifiable {
         default: return "gray"
         }
     }
+    
+    var isPlatformDelivery: Bool {
+        guard let name = customerName else { return false }
+        return name.hasPrefix("Uber") || name.hasPrefix("Rappi") || name.hasPrefix("Didi")
+    }
+    
+    var detectedPlatform: String? {
+        guard let name = customerName else { return nil }
+        if name.hasPrefix("Uber") { return "Uber" }
+        if name.hasPrefix("Rappi") { return "Rappi" }
+        if name.hasPrefix("Didi") { return "Didi" }
+        return nil
+    }
 }
 
 struct OrderItem: Codable, Identifiable {
@@ -63,6 +77,10 @@ struct OrderItem: Codable, Identifiable {
     let deliveredToTable: Bool?
     let voided: Bool?
     let createdAt: String?
+    let isGuest: Bool?
+    
+    var numericUnitPrice: Double { Double(unitPrice) ?? 0 }
+    var numericSubtotal: Double { Double(subtotal) ?? 0 }
 }
 
 struct CartItem: Identifiable {
@@ -84,6 +102,18 @@ struct CartItem: Identifiable {
     var sentToKitchen: Bool
     var orderId: String?
     var itemId: String?
+    var isBeverage: Bool
+    var orderStatus: String? // "pending", "preparing", "ready", "delivered"
+    var deliveredToTable: Bool
+    
+    // Promotion fields
+    var promotionId: String?
+    var promotionName: String?
+    var originalPrice: Double?
+    var promotionDiscount: Double?
+    
+    // Guest fields
+    var isGuest: Bool
     
     var total: Double {
         unitPrice * Double(quantity)
@@ -96,13 +126,44 @@ struct CartItem: Identifiable {
         if let e = extraName { parts.append(e) }
         if let cm = customModifiers,
            let data = cm.data(using: .utf8),
-           let mods = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            for mod in mods {
-                if let name = mod["optionName"] as? String {
-                    parts.append(name)
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for (_, value) in json {
+                if let stepDict = value as? [String: Any],
+                   let options = stepDict["options"] as? [[String: Any]] {
+                    for opt in options {
+                        if let name = opt["name"] as? String {
+                            parts.append(name)
+                        }
+                    }
                 }
             }
         }
         return parts.joined(separator: " · ")
+    }
+    
+    static func fromOrderItem(_ item: OrderItem, orderId: String) -> CartItem {
+        CartItem(
+            productId: item.productId,
+            productName: item.productName,
+            unitPrice: item.numericUnitPrice,
+            quantity: item.quantity,
+            notes: item.notes ?? "",
+            frostingId: item.frostingId,
+            frostingName: item.frostingName,
+            dryToppingId: item.dryToppingId,
+            dryToppingName: item.dryToppingName,
+            extraId: item.extraId,
+            extraName: item.extraName,
+            customModifiers: item.customModifiers,
+            seat: item.seat ?? "C",
+            course: item.course ?? 1,
+            sentToKitchen: true,
+            orderId: orderId,
+            itemId: item.id,
+            isBeverage: false,
+            orderStatus: nil,
+            deliveredToTable: item.deliveredToTable ?? false,
+            isGuest: item.isGuest ?? false
+        )
     }
 }

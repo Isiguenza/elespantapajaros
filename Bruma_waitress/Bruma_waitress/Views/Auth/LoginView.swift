@@ -31,14 +31,6 @@ struct LoginView: View {
                 
                 if authVM.authStep == .idle {
                     idleView
-                } else if authVM.authStep == .employee {
-                    codeEntryView(
-                        title: "Código de Empleado",
-                        subtitle: "Ingresa tu código de 6 dígitos",
-                        value: authVM.employeeCode,
-                        maxLength: 6,
-                        onSubmit: { authVM.submitEmployeeCode() }
-                    )
                 } else if authVM.authStep == .pin {
                     codeEntryView(
                         title: "PIN de Seguridad",

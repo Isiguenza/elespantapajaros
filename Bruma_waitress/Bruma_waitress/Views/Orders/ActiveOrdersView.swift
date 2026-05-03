@@ -61,9 +61,19 @@ struct OrderCard: View {
                     Text(order.displayName)
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.white)
-                    Text("#\(order.orderNumber)")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                    HStack(spacing: 4) {
+                        Text("#\(order.orderNumber)")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        if let tableName = order.tableName, !tableName.isEmpty {
+                            Text("•")
+                                .font(.caption)
+                                .foregroundColor(.gray.opacity(0.5))
+                            Text(tableName)
+                                .font(.caption.weight(.medium))
+                                .foregroundColor(.blue)
+                        }
+                    }
                 }
                 
                 Spacer()
@@ -110,10 +120,21 @@ struct OrderCard: View {
                 }
             }
             
-            // Time
-            if let created = order.createdAt {
-                HStack {
-                    Spacer()
+            // Employee name and Time
+            HStack {
+                if let employeeName = order.employeeName, !employeeName.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "person.fill")
+                            .font(.caption2)
+                        Text(employeeName)
+                            .font(.caption2.weight(.medium))
+                    }
+                    .foregroundColor(.gray.opacity(0.7))
+                }
+                
+                Spacer()
+                
+                if let created = order.createdAt {
                     Text(formatTime(created))
                         .font(.caption2)
                         .foregroundColor(.gray)

@@ -4,7 +4,6 @@ import Combine
 @MainActor
 class AuthViewModel: ObservableObject {
     @Published var authStep: AuthStep = .idle
-    @Published var employeeCode: String = ""
     @Published var pin: String = ""
     @Published var isAuthenticated: Bool = false
     @Published var authenticating: Bool = false
@@ -17,7 +16,6 @@ class AuthViewModel: ObservableObject {
     
     enum AuthStep {
         case idle
-        case employee
         case pin
     }
     
@@ -37,50 +35,25 @@ class AuthViewModel: ObservableObject {
             return
         }
         errorMessage = nil
-        authStep = .employee
+        authStep = .pin
     }
     
     func numberTapped(_ num: String) {
-        switch authStep {
-        case .employee:
-            if employeeCode.count < 6 {
-                employeeCode += num
-            }
-        case .pin:
-            if pin.count < 4 {
-                pin += num
-            }
-        default:
-            break
+        if authStep == .pin && pin.count < 4 {
+            pin += num
         }
     }
     
     func backspace() {
-        switch authStep {
-        case .employee:
-            if !employeeCode.isEmpty { employeeCode.removeLast() }
-        case .pin:
-            if !pin.isEmpty { pin.removeLast() }
-        default:
-            break
+        if authStep == .pin && !pin.isEmpty {
+            pin.removeLast()
         }
     }
     
     func clear() {
-        switch authStep {
-        case .employee: employeeCode = ""
-        case .pin: pin = ""
-        default: break
+        if authStep == .pin {
+            pin = ""
         }
-    }
-    
-    func submitEmployeeCode() {
-        guard employeeCode.count == 6 else {
-            errorMessage = "Ingresa un código de 6 dígitos"
-            return
-        }
-        errorMessage = nil
-        authStep = .pin
     }
     
     func submitPin() async {
@@ -93,15 +66,11 @@ class AuthViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            let employee = try await APIService.shared.verifyPin(
-                employeeCode: employeeCode,
-                pin: pin
-            )
+            let employee = try await APIService.shared.verifyPin(pin: pin)
             employeeId = employee.id
             employeeName = employee.name
             isAuthenticated = true
             authStep = .idle
-            employeeCode = ""
             pin = ""
         } catch {
             errorMessage = error.localizedDescription
@@ -113,7 +82,6 @@ class AuthViewModel: ObservableObject {
     
     func cancel() {
         authStep = .idle
-        employeeCode = ""
         pin = ""
         errorMessage = nil
     }

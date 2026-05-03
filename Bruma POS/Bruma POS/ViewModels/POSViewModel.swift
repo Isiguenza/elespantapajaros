@@ -1,0 +1,1633 @@
+import Foundation
+import SwiftUI
+import Combine
+
+@MainActor
+class POSViewModel: ObservableObject {
+    
+    // MARK: - App State
+    enum AppScreen { case dashboard, tableSelection, pos }
+    @Published var currentScreen: AppScreen = .dashboard
+    @Published var activeView: String = "pos" // "pos" or "reservations"
+    @Published var loading = false
+    @Published var toastMessage: String?
+    @Published var toastIsError = false
+    
+    // MARK: - Auth
+    enum AuthStep: String { case idle, pin }
+    @Published var authStep: AuthStep = .idle
+    @Published var pin = ""
+    @Published var employeeId: String?
+    @Published var employeeName: String?
+    @Published var authenticating = false
+    @Published var cashRegisterOpen = false
+    @Published var checkingRegister = false
+    @Published var lastActivity = Date()
+    
+    // MARK: - Tables
+    @Published var tables: [Table] = []
+    @Published var selectedTable: Table?
+    @Published var tablesWithReadyItems: Set<String> = []
+    
+    // MARK: - Delivery
+    @Published var deliveryOrders: [Order] = []
+    @Published var platformDeliveryOrders: [Order] = []
+    @Published var customerName = ""
+    @Published var showCustomerNameDialog = false
+    @Published var isPlatformDelivery = false
+    @Published var deliveryPlatform = ""
+    @Published var platformOrderDigits = ""
+    
+    // MARK: - Products & Categories
+    @Published var products: [Product] = []
+    @Published var categories: [Category] = []
+    @Published var frostings: [Frosting] = []
+    @Published var toppings: [DryTopping] = []
+    @Published var extras: [Extra] = []
+    @Published var selectedCategory: String?
+    @Published var searchQuery = ""
+    
+    // MARK: - Modifier Flow
+    @Published var categoryFlow: CategoryFlow?
+    @Published var currentStepIndex = -1
+    @Published var stepSelections: [String: Any] = [:]
+    @Published var selectedProduct: Product?
+    @Published var selectedFrosting: Frosting?
+    @Published var selectedTopping: DryTopping?
+    @Published var selectedExtras: [Extra] = []
+    @Published var productNotes = ""
+    
+    // MARK: - Variant Dialog
+    @Published var showVariantDialog = false
+    @Published var selectedProductForVariant: Product?
+    
+    // MARK: - Notes Dialog
+    @Published var showNotesDialog = false
+    @Published var pendingCartItem: CartItem?
+    @Published var tempNotes = ""
+    
+    // MARK: - Cart
+    @Published var cart: [CartItem] = []
+    @Published var activeSeat = "C"
+    @Published var activeCourse = 1
+    @Published var guestCount = 1
+    @Published var currentOrderId: String?
+    @Published var submitting = false
+    
+    // MARK: - Guest Count Dialog
+    @Published var showGuestCountDialog = false
+    @Published var showInitialGuestDialog = false
+    @Published var tempGuestCount = 1
+    
+    // MARK: - Void
+    @Published var showVoidDialog = false
+    @Published var voidItemIndex: Int?
+    @Published var voidReason = ""
+    
+    // MARK: - Payment
+    @Published var showingPayment = false
+    @Published var paymentStep = "summary" // summary, payment, confirmation, done, split-assign, split-overview, split-pay-person
+    @Published var paymentMethod: String?
+    @Published var cashReceived = ""
+    @Published var tipPercentage = 0
+    @Published var customTip = ""
+    @Published var showCustomTip = false
+    @Published var processing = false
+    @Published var paymentCompleted = false
+    @Published var confirmingOrder = false
+    
+    // Reset payment state when switching tables/orders
+    func resetPaymentState() {
+        showingPayment = false
+        paymentStep = "summary"
+        paymentMethod = nil
+        cashReceived = ""
+        tipPercentage = 0
+        customTip = ""
+        showCustomTip = false
+        processing = false
+        paymentCompleted = false
+        confirmingOrder = false
+        splitBillMode = false
+        itemAssignments = [:]
+        individualPayments = [:]
+        individualTips = [:]
+        splitPaymentMethod = nil
+        splitCashReceived = ""
+        currentPersonIndex = 0
+    }
+    
+    // MARK: - Split Bill
+    @Published var splitBillMode = false
+    @Published var itemAssignments: [Int: [Int]] = [:]
+    @Published var individualPayments: [Int: IndividualPayment] = [:]
+    @Published var individualTips: [Int: IndividualTip] = [:]
+    @Published var splitPaymentMethod: String?
+    @Published var splitCashReceived = ""
+    @Published var currentPersonIndex = 0
+    @Published var selectedSplitPersonIndex = 0
+    
+    // MARK: - Promotions & Discounts
+    @Published var activePromotions: [Promotion] = []
+    @Published var availableDiscounts: [Discount] = []
+    @Published var selectedDiscount: Discount?
+    @Published var showFlexibleDiscountDialog = false
+    @Published var flexibleDiscountType = "percentage"
+    @Published var flexibleDiscountValue: Double = 10
+    @Published var customFlexibleAmount = ""
+    
+    // MARK: - Loyalty
+    @Published var loyaltyCard: LoyaltyCard?
+    @Published var qrDialogOpen = false
+    @Published var qrCode = ""
+    @Published var loadingCard = false
+    @Published var showingLoyaltyStep = false
+    @Published var manualStampDialogOpen = false
+    @Published var manualBarcodeInput = ""
+    
+    // MARK: - Guest / Courtesy
+    @Published var showGuestProductDialog = false
+    @Published var guestProductCart: [GuestProductItem] = []
+    @Published var showAdminMenu = false
+    @Published var showGuestItemsDialog = false
+    @Published var guestItemsSelection: [Int] = []
+    
+    // MARK: - Timers
+    private var tablePollingTimer: Timer?
+    private var inactivityTimer: Timer?
+    
+    // MARK: - Computed
+    
+    var filteredProducts: [Product] {
+        if !searchQuery.isEmpty {
+            return products.filter { $0.active && $0.name.localizedCaseInsensitiveContains(searchQuery) }
+        }
+        guard let catId = selectedCategory else { return [] }
+        return products.filter { $0.active && $0.categoryId == catId }
+    }
+    
+    var cartSubtotalBeforeDiscounts: Double {
+        cart.filter { !$0.isGuest }.reduce(0) { $0 + $1.unitPrice * Double($1.quantity) }
+    }
+    
+    var totalPromotionDiscount: Double {
+        cart.filter { !$0.isGuest }.reduce(0) { $0 + ($1.promotionDiscount ?? 0) }
+    }
+    
+    var cartTotal: Double {
+        cartSubtotalBeforeDiscounts - totalPromotionDiscount
+    }
+    
+    var flexibleDiscountAmount: Double {
+        guard let discount = selectedDiscount else { return 0 }
+        if discount.type == "flexible" {
+            if flexibleDiscountType == "percentage" {
+                return PromotionEngine.calculateDiscount(subtotal: cartTotal, discountType: "percentage", discountValue: flexibleDiscountValue)
+            } else {
+                return PromotionEngine.calculateDiscount(subtotal: cartTotal, discountType: "fixed_amount", discountValue: Double(customFlexibleAmount) ?? 0)
+            }
+        }
+        return PromotionEngine.calculateDiscount(subtotal: cartTotal, discountType: discount.type, discountValue: discount.value)
+    }
+    
+    var cartTotalWithDiscount: Double {
+        cartTotal - flexibleDiscountAmount
+    }
+    
+    var totalDiscount: Double {
+        totalPromotionDiscount + flexibleDiscountAmount
+    }
+    
+    var tipAmount: Double {
+        if showCustomTip {
+            return Double(customTip) ?? 0
+        }
+        return cartTotalWithDiscount * Double(tipPercentage) / 100
+    }
+    
+    var totalWithTip: Double {
+        cartTotalWithDiscount + tipAmount
+    }
+    
+    var changeAmount: Double {
+        max(0, (Double(cashReceived) ?? 0) - totalWithTip)
+    }
+    
+    var cashSufficient: Bool {
+        (Double(cashReceived) ?? 0) >= totalWithTip
+    }
+    
+    var hasUnsent: Bool {
+        cart.contains { !$0.sentToKitchen }
+    }
+    
+    var unsentCount: Int {
+        cart.filter { !$0.sentToKitchen }.count
+    }
+    
+    // MARK: - Init
+    
+    init() {
+        restoreSession()
+    }
+    
+    deinit {
+        tablePollingTimer?.invalidate()
+        inactivityTimer?.invalidate()
+    }
+    
+    // MARK: - Format
+    
+    func formatCurrency(_ amount: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = Locale(identifier: "es_MX")
+        formatter.currencyCode = "MXN"
+        return formatter.string(from: NSNumber(value: amount)) ?? "$\(amount)"
+    }
+    
+    // MARK: - Toast
+    
+    func showToast(_ message: String, isError: Bool = false) {
+        toastMessage = message
+        toastIsError = isError
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            self?.toastMessage = nil
+        }
+    }
+    
+    // MARK: - Session
+    
+    func restoreSession() {
+        if let empId = UserDefaults.standard.string(forKey: "pos_employeeId"),
+           let empName = UserDefaults.standard.string(forKey: "pos_employeeName") {
+            employeeId = empId
+            employeeName = empName
+            currentScreen = .tableSelection
+            lastActivity = Date()
+            Task { await fetchData() }
+        }
+    }
+    
+    func saveSession() {
+        UserDefaults.standard.set(employeeId, forKey: "pos_employeeId")
+        UserDefaults.standard.set(employeeName, forKey: "pos_employeeName")
+    }
+    
+    func clearSession() {
+        UserDefaults.standard.removeObject(forKey: "pos_employeeId")
+        UserDefaults.standard.removeObject(forKey: "pos_employeeName")
+        employeeId = nil
+        employeeName = nil
+        currentScreen = .dashboard
+        authStep = .idle
+        pin = ""
+    }
+    
+    // MARK: - Auth Actions
+    
+    func handleOpenComanda() {
+        checkingRegister = true
+        Task {
+            let isOpen = (try? await APIService.shared.checkCashRegister()) ?? false
+            cashRegisterOpen = isOpen
+            checkingRegister = false
+            if !isOpen {
+                showToast("Caja cerrada. Abre la caja desde el dashboard.", isError: true)
+                return
+            }
+            authStep = .pin
+        }
+    }
+    
+    func handleNumberClick(_ key: String) {
+        lastActivity = Date()
+        if authStep == .pin {
+            guard pin.count < 4 else { return }
+            pin += key
+            if pin.count == 4 { handlePinSubmit() }
+        }
+    }
+    
+    func handleBackspace() {
+        if authStep == .pin && !pin.isEmpty {
+            pin.removeLast()
+        }
+    }
+    
+    func handleClear() {
+        if authStep == .pin { pin = "" }
+    }
+    
+    func handlePinSubmit() {
+        guard pin.count == 4 else { return }
+        authenticating = true
+        Task {
+            do {
+                let emp = try await APIService.shared.verifyPin(pin: pin)
+                handlePinSuccess(empId: emp.id, empName: emp.name)
+            } catch {
+                showToast(error.localizedDescription, isError: true)
+                pin = ""
+            }
+            authenticating = false
+        }
+    }
+    
+    func handlePinSuccess(empId: String, empName: String) {
+        employeeId = empId
+        employeeName = empName
+        currentScreen = .tableSelection
+        authStep = .idle
+        pin = ""
+        lastActivity = Date()
+        saveSession()
+        showToast("Bienvenido, \(empName)")
+        Task { await fetchData() }
+        startPolling()
+    }
+    
+    func handleCancel() {
+        authStep = .idle
+        pin = ""
+    }
+    
+    // MARK: - Polling
+    
+    func startPolling() {
+        tablePollingTimer?.invalidate()
+        tablePollingTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.refreshTables()
+            }
+        }
+    }
+    
+    func refreshTables() async {
+        if let t = try? await APIService.shared.fetchTables() {
+            tables = t.filter { $0.active }
+        }
+        if let readyIds = try? await APIService.shared.fetchTablesWithReadyItems() {
+            tablesWithReadyItems = readyIds
+        }
+        if let orders = try? await APIService.shared.fetchDeliveryOrders() {
+            separateDeliveryOrders(orders)
+        }
+    }
+    
+    // MARK: - Data Fetch
+    
+    func fetchData() async {
+        loading = true
+        
+        // Fetch each independently so one failure doesn't block the rest
+        if let t = try? await APIService.shared.fetchTables() {
+            tables = t.filter { $0.active }
+        } else {
+            print("[POS] Error fetching tables")
+        }
+        
+        if let c = try? await APIService.shared.fetchCategories() {
+            categories = c.filter { $0.active }.sorted { $0.sortOrder < $1.sortOrder }
+        } else {
+            print("[POS] Error fetching categories")
+        }
+        
+        if let p = try? await APIService.shared.fetchProducts() {
+            products = p
+        } else {
+            print("[POS] Error fetching products")
+        }
+        
+        if let f = try? await APIService.shared.fetchFrostings() {
+            frostings = f.filter { $0.active }
+        } else {
+            print("[POS] Error fetching frostings")
+        }
+        
+        if let tp = try? await APIService.shared.fetchToppings() {
+            toppings = tp.filter { $0.active }
+        } else {
+            print("[POS] Error fetching toppings")
+        }
+        
+        if let e = try? await APIService.shared.fetchExtras() {
+            extras = e.filter { $0.active }
+        } else {
+            print("[POS] Error fetching extras")
+        }
+        
+        if let pr = try? await APIService.shared.fetchActivePromotions() {
+            activePromotions = pr
+        } else {
+            print("[POS] Error fetching promotions")
+        }
+        
+        if let d = try? await APIService.shared.fetchAvailableDiscounts() {
+            availableDiscounts = d
+        } else {
+            print("[POS] Error fetching discounts")
+        }
+        
+        if let del = try? await APIService.shared.fetchDeliveryOrders() {
+            separateDeliveryOrders(del)
+        } else {
+            print("[POS] Error fetching delivery orders")
+        }
+        
+        if let ready = try? await APIService.shared.fetchTablesWithReadyItems() {
+            tablesWithReadyItems = ready
+        } else {
+            print("[POS] Error fetching ready items")
+        }
+        
+        loading = false
+    }
+    
+    private func separateDeliveryOrders(_ orders: [Order]) {
+        var regular: [Order] = []
+        var platform: [Order] = []
+        
+        // Group by customerName to merge related orders
+        var grouped: [String: [Order]] = [:]
+        for order in orders {
+            let key = order.customerName ?? "Delivery_\(order.id)"
+            grouped[key, default: []].append(order)
+        }
+        
+        for (_, orders) in grouped {
+            guard let first = orders.first else { continue }
+            if first.isPlatformDelivery {
+                // Merge items from multiple platform orders into one
+                if orders.count > 1 {
+                    var mergedItems: [OrderItem] = []
+                    for o in orders {
+                        mergedItems.append(contentsOf: o.items ?? [])
+                    }
+                    // Use first order as base
+                    platform.append(first)
+                } else {
+                    platform.append(first)
+                }
+            } else {
+                if orders.count > 1 {
+                    regular.append(first)
+                } else {
+                    regular.append(first)
+                }
+            }
+        }
+        
+        deliveryOrders = regular
+        platformDeliveryOrders = platform
+    }
+    
+    // MARK: - Table Selection
+    
+    func handleSelectTable(_ table: Table) {
+        lastActivity = Date()
+        
+        // Reset payment state for new table/order
+        resetPaymentState()
+        
+        if table.isOccupied {
+            // Load existing order for this table
+            Task {
+                loading = true
+                selectedTable = table
+                guestCount = table.guestCount ?? 1
+                activeSeat = guestCount > 0 ? "A1" : "C"
+                
+                do {
+                    let orders = try await APIService.shared.fetchOrdersByTable(tableId: table.id)
+                    if let mainOrder = orders.first {
+                        currentOrderId = mainOrder.id
+                        // Merge items from all related orders
+                        var allItems: [CartItem] = []
+                        for order in orders {
+                            if let items = order.items {
+                                for item in items where !(item.voided ?? false) {
+                                    var cartItem = CartItem.fromOrderItem(item, orderId: order.id)
+                                    cartItem.orderStatus = order.status
+                                    allItems.append(cartItem)
+                                }
+                            }
+                        }
+                        cart = allItems
+                    }
+                } catch {
+                    print("Error loading table orders: \(error)")
+                }
+                
+                currentScreen = .pos
+                loading = false
+            }
+        } else if table.isReserved {
+            selectedTable = table
+            guestCount = table.guestCount ?? 1
+            tempGuestCount = guestCount
+            
+            // Clear cart and reset state for reserved table
+            cart = []
+            currentOrderId = nil
+            activeCourse = 1
+            activeSeat = guestCount > 0 ? "A1" : "C"
+            
+            currentScreen = .pos
+        } else {
+            // Available table — ask for guest count
+            selectedTable = table
+            tempGuestCount = table.guestCount ?? 2
+            showInitialGuestDialog = true
+        }
+    }
+    
+    func confirmInitialGuestCount() {
+        guestCount = tempGuestCount
+        activeSeat = "A1"
+        showInitialGuestDialog = false
+        
+        // Clear cart and reset state for new empty table
+        cart = []
+        currentOrderId = nil
+        activeCourse = 1
+        
+        currentScreen = .pos
+        
+        if let table = selectedTable {
+            Task {
+                let _ = try? await APIService.shared.updateTable(tableId: table.id, body: ["guestCount": tempGuestCount])
+            }
+        }
+        showToast("Mesa \(selectedTable?.number ?? "") — \(tempGuestCount) persona\(tempGuestCount > 1 ? "s" : "")")
+    }
+    
+    func confirmGuestCount() {
+        guestCount = tempGuestCount
+        showGuestCountDialog = false
+        showToast("Número de personas actualizado: \(tempGuestCount)")
+        
+        if let table = selectedTable {
+            Task {
+                if let updated = try? await APIService.shared.updateTable(tableId: table.id, body: ["guestCount": tempGuestCount]) {
+                    selectedTable = updated
+                }
+            }
+        }
+    }
+    
+    // MARK: - Delivery Orders
+    
+    func handleNewDeliveryOrder() {
+        resetPaymentState()
+        isPlatformDelivery = false
+        deliveryPlatform = ""
+        platformOrderDigits = ""
+        customerName = ""
+        showCustomerNameDialog = true
+    }
+    
+    func handleNewPlatformDeliveryOrder() {
+        resetPaymentState()
+        isPlatformDelivery = true
+        deliveryPlatform = ""
+        platformOrderDigits = ""
+        customerName = ""
+        showCustomerNameDialog = true
+    }
+    
+    func handleConfirmCustomerName() {
+        if isPlatformDelivery {
+            guard !deliveryPlatform.isEmpty, !platformOrderDigits.isEmpty else {
+                showToast("Completa plataforma y dígitos de orden", isError: true)
+                return
+            }
+            let fullName = "\(deliveryPlatform) \(platformOrderDigits)\(customerName.isEmpty ? "" : " - \(customerName)")"
+            customerName = fullName
+        } else {
+            guard !customerName.trimmingCharacters(in: .whitespaces).isEmpty else {
+                showToast("Ingresa el nombre del cliente", isError: true)
+                return
+            }
+        }
+        
+        showCustomerNameDialog = false
+        selectedTable = nil
+        cart = []
+        currentOrderId = nil
+        activeSeat = "C"
+        activeCourse = 1
+        currentScreen = .pos
+    }
+    
+    func handleSelectDeliveryOrder(_ order: Order) {
+        lastActivity = Date()
+        
+        // Reset payment state for new order
+        resetPaymentState()
+        
+        customerName = order.customerName ?? "Delivery"
+        selectedTable = nil
+        currentOrderId = order.id
+        
+        // Load items
+        var items: [CartItem] = []
+        if let orderItems = order.items {
+            for item in orderItems where !(item.voided ?? false) {
+                var cartItem = CartItem.fromOrderItem(item, orderId: order.id)
+                cartItem.orderStatus = order.status
+                items.append(cartItem)
+            }
+        }
+        cart = items
+        currentScreen = .pos
+    }
+    
+    // MARK: - Product Selection
+    
+    func handleProductClick(_ product: Product) {
+        lastActivity = Date()
+        
+        if product.hasVariants && product.variants != nil {
+            selectedProductForVariant = product
+            showVariantDialog = true
+            return
+        }
+        
+        // Check category flow
+        if let catId = product.categoryId {
+            Task {
+                let flow = try? await APIService.shared.fetchCategoryFlow(categoryId: catId)
+                if let flow = flow, !flow.useDefaultFlow, !flow.steps.isEmpty {
+                    categoryFlow = flow
+                    selectedProduct = product
+                    currentStepIndex = 0
+                    stepSelections = [:]
+                    return
+                }
+                // No flow — add directly with notes dialog
+                addProductDirectly(product)
+            }
+        } else {
+            addProductDirectly(product)
+        }
+    }
+    
+    private func addProductDirectly(_ product: Product) {
+        let isPlatform = customerName.hasPrefix("Uber") || customerName.hasPrefix("Rappi") || customerName.hasPrefix("Didi")
+        let price = isPlatform ? product.numericPlatformPrice : product.numericPrice
+        let isBev = product.category?.isBeverage ?? false
+        
+        let newItem = CartItem(
+            productId: product.id,
+            productName: product.name,
+            unitPrice: price,
+            quantity: 1,
+            notes: "",
+            seat: activeSeat,
+            course: activeCourse,
+            sentToKitchen: false,
+            isBeverage: isBev,
+            deliveredToTable: false,
+            isGuest: false
+        )
+        
+        pendingCartItem = newItem
+        tempNotes = ""
+        showNotesDialog = true
+    }
+    
+    func handleAddVariant(_ variantName: String, price: String, platformPrice: String?) {
+        guard let product = selectedProductForVariant else { return }
+        showVariantDialog = false
+        
+        let isPlatform = customerName.hasPrefix("Uber") || customerName.hasPrefix("Rappi") || customerName.hasPrefix("Didi")
+        let variantPrice: Double
+        if isPlatform, let pp = platformPrice, let ppVal = Double(pp) {
+            variantPrice = ppVal
+        } else {
+            variantPrice = Double(price) ?? 0
+        }
+        
+        let isBev = product.category?.isBeverage ?? false
+        let displayName = "\(product.name) - \(variantName)"
+        
+        // Check for category flow
+        if let catId = product.categoryId {
+            Task {
+                let flow = try? await APIService.shared.fetchCategoryFlow(categoryId: catId)
+                if let flow = flow, !flow.useDefaultFlow, !flow.steps.isEmpty {
+                    categoryFlow = flow
+                    selectedProduct = product
+                    currentStepIndex = 0
+                    stepSelections = [:]
+                    // Store variant info for later
+                    stepSelections["_variantName"] = variantName as Any
+                    stepSelections["_variantPrice"] = variantPrice as Any
+                    stepSelections["_displayName"] = displayName as Any
+                    return
+                }
+                
+                let newItem = CartItem(
+                    productId: product.id,
+                    productName: displayName,
+                    unitPrice: variantPrice,
+                    quantity: 1,
+                    notes: "",
+                    seat: activeSeat,
+                    course: activeCourse,
+                    sentToKitchen: false,
+                    isBeverage: isBev,
+                    deliveredToTable: false,
+                    isGuest: false
+                )
+                pendingCartItem = newItem
+                tempNotes = ""
+                showNotesDialog = true
+            }
+        } else {
+            let newItem = CartItem(
+                productId: product.id,
+                productName: displayName,
+                unitPrice: variantPrice,
+                quantity: 1,
+                notes: "",
+                seat: activeSeat,
+                course: activeCourse,
+                sentToKitchen: false,
+                isBeverage: product.category?.isBeverage ?? false,
+                deliveredToTable: false,
+                isGuest: false
+            )
+            pendingCartItem = newItem
+            tempNotes = ""
+            showNotesDialog = true
+        }
+    }
+    
+    // MARK: - Modifier Flow
+    
+    func handleStepSelection(_ selection: Any?) {
+        guard let flow = categoryFlow, currentStepIndex < flow.steps.count else { return }
+        let step = flow.steps[currentStepIndex]
+        stepSelections[step.id] = selection
+        
+        let nextIndex = currentStepIndex + 1
+        if nextIndex < flow.steps.count {
+            currentStepIndex = nextIndex
+        } else {
+            // Move to notes step
+            currentStepIndex = flow.steps.count
+        }
+    }
+    
+    func handleBackInFlow() {
+        if currentStepIndex > 0 {
+            currentStepIndex -= 1
+        } else {
+            resetFlow()
+        }
+    }
+    
+    func resetFlow() {
+        currentStepIndex = -1
+        categoryFlow = nil
+        selectedProduct = nil
+        stepSelections = [:]
+        selectedFrosting = nil
+        selectedTopping = nil
+        selectedExtras = []
+        productNotes = ""
+    }
+    
+    func finishFlowAndAddToCart() {
+        guard let product = selectedProduct else { return }
+        
+        let isPlatform = customerName.hasPrefix("Uber") || customerName.hasPrefix("Rappi") || customerName.hasPrefix("Didi")
+        var price: Double
+        var displayName: String
+        
+        if let variantPrice = stepSelections["_variantPrice"] as? Double,
+           let vName = stepSelections["_displayName"] as? String {
+            price = variantPrice
+            displayName = vName
+        } else {
+            price = isPlatform ? product.numericPlatformPrice : product.numericPrice
+            displayName = product.name
+        }
+        
+        var frostId: String?, frostName: String?
+        var topId: String?, topName: String?
+        var extId: String?, extName: String?
+        var customMods: String?
+        var customModsDict: [String: Any] = [:]
+        
+        if let flow = categoryFlow {
+            for step in flow.steps {
+                if let sel = stepSelections[step.id] {
+                    switch step.stepType {
+                    case "frosting":
+                        if let f = sel as? Frosting {
+                            frostId = f.id; frostName = f.name
+                        }
+                    case "topping":
+                        if let t = sel as? DryTopping {
+                            topId = t.id; topName = t.name
+                        }
+                    case "extra":
+                        if let exts = sel as? [Extra], !exts.isEmpty {
+                            let names = exts.map { $0.name }.joined(separator: ", ")
+                            extId = exts.first?.id; extName = names
+                            let extrasPrice = exts.reduce(0.0) { $0 + $1.numericPrice }
+                            price += extrasPrice
+                        }
+                    case "custom":
+                        if let opt = sel as? ModifierOption {
+                            customModsDict[step.id] = [
+                                "stepName": step.stepName,
+                                "stepType": step.stepType,
+                                "options": [["id": opt.id, "name": opt.name, "price": opt.price]]
+                            ]
+                            price += opt.numericPrice
+                        }
+                    default: break
+                    }
+                }
+            }
+        }
+        
+        if !customModsDict.isEmpty {
+            if let data = try? JSONSerialization.data(withJSONObject: customModsDict),
+               let str = String(data: data, encoding: .utf8) {
+                customMods = str
+            }
+        }
+        
+        let isBev = product.category?.isBeverage ?? false
+        
+        let newItem = CartItem(
+            productId: product.id,
+            productName: displayName,
+            unitPrice: price,
+            quantity: 1,
+            notes: productNotes,
+            frostingId: frostId,
+            frostingName: frostName,
+            dryToppingId: topId,
+            dryToppingName: topName,
+            extraId: extId,
+            extraName: extName,
+            customModifiers: customMods,
+            seat: activeSeat,
+            course: activeCourse,
+            sentToKitchen: false,
+            isBeverage: isBev,
+            deliveredToTable: false,
+            isGuest: false
+        )
+        
+        addToCart(newItem)
+        resetFlow()
+    }
+    
+    // MARK: - Notes
+    
+    func handleConfirmNotes() {
+        guard var item = pendingCartItem else { return }
+        item.notes = tempNotes
+        addToCart(item)
+        showNotesDialog = false
+        pendingCartItem = nil
+        tempNotes = ""
+    }
+    
+    func handleCancelNotes() {
+        guard let item = pendingCartItem else { return }
+        addToCart(item)
+        showNotesDialog = false
+        pendingCartItem = nil
+        tempNotes = ""
+    }
+    
+    // MARK: - Cart Operations
+    
+    private func addToCart(_ item: CartItem) {
+        // Try to combine with existing identical item
+        if let idx = cart.firstIndex(where: {
+            !$0.sentToKitchen &&
+            $0.productId == item.productId &&
+            $0.unitPrice == item.unitPrice &&
+            $0.frostingId == item.frostingId &&
+            $0.dryToppingId == item.dryToppingId &&
+            $0.extraId == item.extraId &&
+            $0.customModifiers == item.customModifiers &&
+            $0.seat == item.seat &&
+            $0.course == item.course &&
+            $0.notes == item.notes &&
+            $0.isGuest == item.isGuest
+        }) {
+            cart[idx].quantity += item.quantity
+        } else {
+            cart.append(item)
+        }
+        applyPromotions()
+    }
+    
+    func updateQuantity(at index: Int, delta: Int) {
+        guard index < cart.count else { return }
+        if cart[index].sentToKitchen {
+            showToast("No se puede modificar un item ya enviado a cocina", isError: true)
+            return
+        }
+        let newQty = cart[index].quantity + delta
+        if newQty <= 0 {
+            removeFromCart(at: index)
+        } else {
+            cart[index].quantity = newQty
+            applyPromotions()
+        }
+    }
+    
+    func removeFromCart(at index: Int) {
+        guard index < cart.count else { return }
+        if cart[index].sentToKitchen {
+            voidItemIndex = index
+            voidReason = ""
+            showVoidDialog = true
+            return
+        }
+        cart.remove(at: index)
+        applyPromotions()
+    }
+    
+    func updateCartQuantity(at index: Int, delta: Int) {
+        guard index < cart.count else { return }
+        let item = cart[index]
+        
+        // Don't allow changing quantity of items already sent to kitchen
+        if item.sentToKitchen {
+            showToast("No se puede modificar cantidad de items enviados a cocina", isError: true)
+            return
+        }
+        
+        let newQuantity = item.quantity + delta
+        if newQuantity < 1 {
+            // Remove item if quantity goes below 1
+            cart.remove(at: index)
+        } else {
+            cart[index].quantity = newQuantity
+        }
+        applyPromotions()
+    }
+    
+    func handleVoidItem() {
+        guard let index = voidItemIndex, index < cart.count else { return }
+        let item = cart[index]
+        
+        Task {
+            if let itemId = item.itemId, let orderId = item.orderId {
+                try? await APIService.shared.voidItem(orderId: orderId, itemId: itemId, reason: voidReason.isEmpty ? "Sin razón" : voidReason, voidedBy: employeeId)
+            }
+            cart.remove(at: index)
+            showToast("Item eliminado: \(item.productName)")
+            showVoidDialog = false
+            voidItemIndex = nil
+            voidReason = ""
+        }
+    }
+    
+    func handleMarkAsDelivered(at index: Int) {
+        guard index < cart.count else { return }
+        let item = cart[index]
+        guard let orderId = item.orderId, let itemId = item.itemId else { return }
+        
+        Task {
+            try? await APIService.shared.markItemDelivered(orderId: orderId, itemId: itemId)
+            cart[index].deliveredToTable = true
+            showToast("Marcado como entregado")
+        }
+    }
+    
+    // MARK: - Promotions
+    
+    func applyPromotions() {
+        guard !activePromotions.isEmpty else { return }
+        // Reset promotions first
+        for i in cart.indices {
+            if let origPrice = cart[i].originalPrice {
+                cart[i].unitPrice = origPrice
+            }
+            cart[i].promotionId = nil
+            cart[i].promotionName = nil
+            cart[i].originalPrice = nil
+            cart[i].promotionDiscount = nil
+        }
+        cart = PromotionEngine.applyPromotions(cartItems: cart, promotions: activePromotions)
+    }
+    
+    // MARK: - Send to Kitchen
+    
+    func handleSendToKitchen() {
+        let unsentItems = cart.filter { !$0.sentToKitchen }
+        guard !unsentItems.isEmpty else { return }
+        
+        submitting = true
+        Task {
+            do {
+                if let orderId = currentOrderId {
+                    // Add items to existing order
+                    let itemDicts = unsentItems.map { itemToDict($0) }
+                    let updated = try await APIService.shared.addItemsToOrder(orderId: orderId, items: itemDicts)
+                    
+                    // Mark all unsent as sent
+                    for i in cart.indices {
+                        if !cart[i].sentToKitchen {
+                            cart[i].sentToKitchen = true
+                            cart[i].orderId = orderId
+                            // Try to match itemId from response
+                            if let updatedItems = updated.items {
+                                for dbItem in updatedItems {
+                                    if dbItem.productId == cart[i].productId && cart[i].itemId == nil {
+                                        cart[i].itemId = dbItem.id
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    await printComanda(items: unsentItems, orderId: orderId)
+                } else {
+                    // Create new order
+                    let itemDicts = unsentItems.map { itemToDict($0) }
+                    var body: [String: Any] = [
+                        "items": itemDicts,
+                        "status": "preparing",
+                        "employeeId": employeeId ?? ""
+                    ]
+                    if let table = selectedTable { body["tableId"] = table.id }
+                    if !customerName.isEmpty { body["customerName"] = customerName }
+                    if let loyaltyId = loyaltyCard?.id { body["loyaltyCardId"] = loyaltyId }
+                    
+                    let order = try await APIService.shared.createOrder(body: body)
+                    currentOrderId = order.id
+                    
+                    if let table = selectedTable {
+                        try? await APIService.shared.updateTableStatus(tableId: table.id, status: "occupied")
+                    }
+                    
+                    for i in cart.indices {
+                        if !cart[i].sentToKitchen {
+                            cart[i].sentToKitchen = true
+                            cart[i].orderId = order.id
+                        }
+                    }
+                    
+                    await printComanda(items: unsentItems, orderId: order.id)
+                }
+                
+                showToast("Enviado a cocina (\(unsentItems.count) items)")
+            } catch {
+                showToast("Error enviando a cocina", isError: true)
+            }
+            submitting = false
+        }
+    }
+    
+    private func itemToDict(_ item: CartItem) -> [String: Any] {
+        var dict: [String: Any] = [
+            "productId": item.productId,
+            "productName": item.productName,
+            "quantity": item.quantity,
+            "unitPrice": item.unitPrice,
+            "seat": item.seat,
+            "course": item.course
+        ]
+        if !item.notes.isEmpty { dict["notes"] = item.notes }
+        if let v = item.frostingId { dict["frostingId"] = v }
+        if let v = item.frostingName { dict["frostingName"] = v }
+        if let v = item.dryToppingId { dict["dryToppingId"] = v }
+        if let v = item.dryToppingName { dict["dryToppingName"] = v }
+        if let v = item.extraId { dict["extraId"] = v }
+        if let v = item.extraName { dict["extraName"] = v }
+        if let v = item.customModifiers { dict["customModifiers"] = v }
+        if item.isGuest { dict["isGuest"] = true }
+        return dict
+    }
+    
+    private func printComanda(items: [CartItem], orderId: String) async {
+        // Group items for comanda
+        let comandaItems: [[String: Any]] = items.map { item in
+            var dict: [String: Any] = [
+                "name": item.productName,
+                "qty": item.quantity,
+                "seat": item.seat,
+                "course": item.course
+            ]
+            if !item.notes.isEmpty { dict["notes"] = item.notes }
+            if let f = item.frostingName { dict["frosting"] = f }
+            if let t = item.dryToppingName { dict["topping"] = t }
+            if let e = item.extraName { dict["extra"] = e }
+            dict["isBeverage"] = item.isBeverage
+            return dict
+        }
+        
+        await PrintService.shared.printComanda(
+            tableNumber: selectedTable?.number,
+            orderNumber: String(orderId.prefix(8)),
+            customerName: customerName.isEmpty ? nil : customerName,
+            items: comandaItems,
+            isDelivery: selectedTable == nil
+        )
+    }
+    
+    // MARK: - Checkout / Payment
+    
+    func handleCheckout() {
+        guard !cart.isEmpty else {
+            showToast("El carrito está vacío", isError: true)
+            return
+        }
+        guard employeeId != nil else {
+            showToast("No hay empleado autenticado", isError: true)
+            return
+        }
+        guard selectedTable != nil || !customerName.isEmpty else {
+            showToast("No hay mesa ni cliente seleccionado", isError: true)
+            return
+        }
+        
+        if let orderId = currentOrderId {
+            // Existing order — add unsent items then go to payment
+            let unsentItems = cart.filter { !$0.sentToKitchen && $0.itemId == nil }
+            if !unsentItems.isEmpty {
+                Task {
+                    let itemDicts = unsentItems.map { itemToDict($0) }
+                    let _ = try? await APIService.shared.addItemsToOrder(orderId: orderId, items: itemDicts)
+                    for i in cart.indices {
+                        if !cart[i].sentToKitchen && cart[i].itemId == nil {
+                            cart[i].sentToKitchen = true
+                            cart[i].orderId = orderId
+                        }
+                    }
+                    
+                    if !itemAssignments.isEmpty {
+                        paymentStep = "split-assign"
+                    } else {
+                        paymentStep = "summary"
+                    }
+                    showingPayment = true
+                }
+            } else {
+                if !itemAssignments.isEmpty {
+                    paymentStep = "split-assign"
+                } else {
+                    paymentStep = "summary"
+                }
+                showingPayment = true
+            }
+            return
+        }
+        
+        // No order exists — create one
+        submitting = true
+        Task {
+            do {
+                let itemDicts = cart.map { itemToDict($0) }
+                var body: [String: Any] = [
+                    "items": itemDicts,
+                    "employeeId": employeeId ?? "",
+                    "paymentStatus": "pending"
+                ]
+                if let table = selectedTable { body["tableId"] = table.id }
+                if !customerName.isEmpty { body["customerName"] = customerName }
+                if let loyaltyId = loyaltyCard?.id { body["loyaltyCardId"] = loyaltyId }
+                
+                let order = try await APIService.shared.createOrder(body: body)
+                currentOrderId = order.id
+                
+                if let table = selectedTable {
+                    try? await APIService.shared.updateTableStatus(tableId: table.id, status: "occupied")
+                }
+                
+                for i in cart.indices {
+                    cart[i].orderId = order.id
+                    cart[i].sentToKitchen = true
+                }
+                
+                paymentStep = "summary"
+                showingPayment = true
+            } catch {
+                showToast("Error creando orden", isError: true)
+            }
+            submitting = false
+        }
+    }
+    
+    // MARK: - Payment Methods
+    
+    func handlePayCash() {
+        guard let orderId = currentOrderId else { return }
+        processing = true
+        Task {
+            do {
+                try await APIService.shared.payOrder(orderId: orderId, body: [
+                    "paymentMethod": "cash",
+                    "loyaltyCardId": loyaltyCard?.id ?? "",
+                    "loyaltyStamps": 1,
+                    "userId": employeeId ?? "",
+                    "tip": tipAmount,
+                    "subtotal": cartTotalWithDiscount,
+                    "discount": totalDiscount
+                ])
+                paymentCompleted = true
+                await handlePrint(paymentMethod: "cash")
+                showToast("Pago en efectivo registrado")
+            } catch {
+                showToast("Error procesando pago", isError: true)
+            }
+            processing = false
+        }
+    }
+    
+    func handlePayTransfer() {
+        guard let orderId = currentOrderId else { return }
+        processing = true
+        Task {
+            do {
+                try await APIService.shared.payOrder(orderId: orderId, body: [
+                    "paymentMethod": "transfer",
+                    "loyaltyCardId": loyaltyCard?.id ?? "",
+                    "loyaltyStamps": 1,
+                    "userId": employeeId ?? "",
+                    "tip": tipAmount,
+                    "subtotal": cartTotalWithDiscount,
+                    "discount": totalDiscount
+                ])
+                paymentCompleted = true
+                await handlePrint(paymentMethod: "transfer")
+                showToast("Pago por transferencia registrado")
+            } catch {
+                showToast("Error procesando pago", isError: true)
+            }
+            processing = false
+        }
+    }
+    
+    func handlePayTerminal() {
+        guard let orderId = currentOrderId else { return }
+        processing = true
+        Task {
+            do {
+                try await APIService.shared.payOrder(orderId: orderId, body: [
+                    "paymentMethod": "terminal_mercadopago",
+                    "loyaltyCardId": loyaltyCard?.id ?? "",
+                    "loyaltyStamps": 1,
+                    "userId": employeeId ?? "",
+                    "tip": tipAmount,
+                    "subtotal": cartTotalWithDiscount,
+                    "discount": totalDiscount
+                ])
+                paymentCompleted = true
+                await handlePrint(paymentMethod: "card")
+                showToast("Pago con tarjeta registrado")
+            } catch {
+                showToast("Error procesando pago", isError: true)
+            }
+            processing = false
+        }
+    }
+    
+    func handleDeliverToDriver() {
+        guard let orderId = currentOrderId else { return }
+        processing = true
+        Task {
+            do {
+                let subtotal = cart.reduce(0.0) { $0 + $1.unitPrice * Double($1.quantity) }
+                try await APIService.shared.payOrder(orderId: orderId, body: [
+                    "paymentMethod": "platform_delivery",
+                    "subtotal": subtotal,
+                    "tip": 0,
+                    "userId": employeeId ?? ""
+                ])
+                await handlePrint()
+                showToast("Orden entregada a repartidor")
+                paymentCompleted = true
+                handleConfirmOrder()
+            } catch {
+                showToast("Error entregando orden", isError: true)
+            }
+            processing = false
+        }
+    }
+    
+    // MARK: - Split Bill Payment
+    
+    func handleSplitPayPerson() {
+        let pIdx = selectedSplitPersonIndex
+        let assignedItems = itemAssignments[pIdx] ?? []
+        let tipData = individualTips[pIdx] ?? IndividualTip()
+        let personTotal = assignedItems.reduce(0.0) { sum, ci in
+            guard ci < cart.count else { return sum }
+            return sum + cart[ci].unitPrice * Double(cart[ci].quantity)
+        }
+        let tipAmt = tipData.showCustom ? (Double(tipData.custom) ?? 0) : personTotal * Double(tipData.percentage) / 100
+        let finalTotal = personTotal + tipAmt
+        
+        individualPayments[pIdx] = IndividualPayment(paid: true, method: splitPaymentMethod, amount: finalTotal)
+        showToast("Persona \(pIdx + 1) - Pago registrado: \(formatCurrency(finalTotal))")
+        paymentStep = "split-overview"
+    }
+    
+    func handleFinalizeSplitBill() {
+        guard let orderId = currentOrderId else { return }
+        confirmingOrder = true
+        Task {
+            do {
+                var totalTips = 0.0
+                for i in 0..<guestCount {
+                    let assignedItems = itemAssignments[i] ?? []
+                    let personSubtotal = assignedItems.reduce(0.0) { sum, ci in
+                        guard ci < cart.count else { return sum }
+                        return sum + cart[ci].unitPrice * Double(cart[ci].quantity)
+                    }
+                    let tipData = individualTips[i] ?? IndividualTip()
+                    let tipAmt = tipData.showCustom ? (Double(tipData.custom) ?? 0) : personSubtotal * Double(tipData.percentage) / 100
+                    totalTips += tipAmt
+                }
+                
+                try await APIService.shared.payOrder(orderId: orderId, body: [
+                    "paymentMethod": "split",
+                    "loyaltyCardId": loyaltyCard?.id ?? "",
+                    "loyaltyStamps": 1,
+                    "userId": employeeId ?? "",
+                    "tip": totalTips,
+                    "subtotal": cartTotal
+                ])
+                
+                await handlePrint()
+                showToast("Pago dividido completado")
+                handleConfirmOrder()
+            } catch {
+                showToast("Error procesando pago dividido", isError: true)
+            }
+            confirmingOrder = false
+        }
+    }
+    
+    // MARK: - Print Ticket
+    
+    func handlePrint(paymentMethod: String? = nil) async {
+        let sentItems = cart.filter { $0.sentToKitchen }
+        guard !sentItems.isEmpty else { return }
+        
+        // Group by seat then product
+        var seatGroups: [String: [String: TicketItem]] = [:]
+        for item in sentItems {
+            let seat = item.seat.isEmpty ? "C" : item.seat
+            if seatGroups[seat] == nil { seatGroups[seat] = [:] }
+            let key = "\(item.productId)-\(item.unitPrice)-\(item.promotionId ?? "none")"
+            if var existing = seatGroups[seat]?[key] {
+                existing.qty += item.quantity
+                existing.total = Double(existing.qty) * existing.price
+                if let pd = item.promotionDiscount {
+                    existing.promotionDiscount = (existing.promotionDiscount ?? 0) + pd
+                }
+                seatGroups[seat]?[key] = existing
+            } else {
+                seatGroups[seat]?[key] = TicketItem(
+                    name: item.productName,
+                    qty: item.quantity,
+                    price: item.unitPrice,
+                    total: Double(item.quantity) * item.unitPrice,
+                    promotionName: item.promotionName,
+                    promotionDiscount: item.promotionDiscount,
+                    isGuest: item.isGuest
+                )
+            }
+        }
+        
+        let subtotal = seatGroups.values.flatMap { $0.values }.filter { !($0.isGuest ?? false) }.reduce(0.0) { $0 + $1.total }
+        
+        let discountData: [String: Any]? = selectedDiscount.map { d in
+            ["name": d.name, "amount": Int(flexibleDiscountAmount)]
+        }
+        
+        let discountAmt = discountData?["amount"] as? Int ?? 0
+        let subWithDiscount = subtotal - Double(discountAmt)
+        let tip = showCustomTip ? (Double(customTip) ?? 0) : subWithDiscount * Double(tipPercentage) / 100
+        let total = subWithDiscount + tip
+        
+        var itemsBySeat: [String: [[String: Any]]] = [:]
+        for (seat, items) in seatGroups {
+            itemsBySeat[seat] = items.values.map { item in
+                var dict: [String: Any] = [
+                    "name": item.name,
+                    "qty": item.qty,
+                    "total": Int(item.total)
+                ]
+                if let pn = item.promotionName { dict["promotionName"] = pn }
+                if let pd = item.promotionDiscount { dict["promotionDiscount"] = Int(pd) }
+                if let ig = item.isGuest, ig { dict["isGuest"] = true }
+                return dict
+            }
+        }
+        
+        await PrintService.shared.printTicket(
+            customerName: customerName,
+            orderNumber: String((sentItems.first?.orderId ?? "N/A").prefix(8)),
+            items: itemsBySeat,
+            subtotal: Int(subtotal),
+            tip: Int(tip),
+            total: Int(total),
+            tableNumber: selectedTable?.number ?? "",
+            isDelivery: selectedTable == nil,
+            discount: discountData,
+            paymentMethod: paymentMethod
+        )
+    }
+    
+    // MARK: - Confirm / Reset Order
+    
+    func handleConfirmOrder() {
+        showToast("Orden completada")
+        
+        cart = []
+        activeCourse = 1
+        loyaltyCard = nil
+        showingPayment = false
+        showingLoyaltyStep = false
+        paymentStep = "summary"
+        paymentMethod = nil
+        cashReceived = ""
+        currentOrderId = nil
+        paymentCompleted = false
+        selectedTable = nil
+        customerName = ""
+        tipPercentage = 0
+        customTip = ""
+        showCustomTip = false
+        splitBillMode = false
+        itemAssignments = [:]
+        individualPayments = [:]
+        individualTips = [:]
+        splitPaymentMethod = nil
+        splitCashReceived = ""
+        selectedDiscount = nil
+        guestItemsSelection = []
+        
+        currentScreen = .tableSelection
+        Task { await refreshTables() }
+    }
+    
+    func handleChangeTable() {
+        currentScreen = .tableSelection
+        Task { await refreshTables() }
+    }
+    
+    func handleReleaseTable() {
+        if let table = selectedTable {
+            Task {
+                try? await APIService.shared.updateTableStatus(tableId: table.id, status: "available")
+            }
+        }
+        handleConfirmOrder()
+    }
+    
+    // MARK: - Loyalty
+    
+    func handleQRCodeDetected(_ code: String) {
+        guard !code.trimmingCharacters(in: .whitespaces).isEmpty else {
+            showToast("Código QR inválido", isError: true)
+            return
+        }
+        loadingCard = true
+        Task {
+            do {
+                let card = try await APIService.shared.searchLoyaltyCard(barcode: code)
+                loyaltyCard = card
+                qrDialogOpen = false
+                qrCode = ""
+                showToast("Cliente: \(card.customerName)")
+            } catch {
+                showToast("Tarjeta no encontrada", isError: true)
+                qrCode = ""
+            }
+            loadingCard = false
+        }
+    }
+    
+    func handleManualStampSubmit() {
+        guard !manualBarcodeInput.trimmingCharacters(in: .whitespaces).isEmpty else {
+            showToast("Ingresa el código de barras", isError: true)
+            return
+        }
+        loadingCard = true
+        Task {
+            do {
+                let card = try await APIService.shared.fetchLoyaltyCardByBarcode(manualBarcodeInput)
+                let _ = try await APIService.shared.addStamp(cardId: card.id)
+                showToast("Sello agregado a \(card.customerName)")
+                manualStampDialogOpen = false
+                manualBarcodeInput = ""
+            } catch {
+                showToast("Error al procesar sello", isError: true)
+            }
+            loadingCard = false
+        }
+    }
+    
+    // MARK: - Guest / Courtesy
+    
+    func handleGuestProductSubmit() {
+        guard !guestProductCart.isEmpty else { return }
+        Task {
+            do {
+                let items: [[String: Any]] = guestProductCart.map { item in
+                    [
+                        "productId": item.productId,
+                        "productName": item.name,
+                        "quantity": item.qty,
+                        "unitPrice": item.price,
+                        "notes": "Cortesía",
+                        "isGuest": true,
+                        "seat": "C",
+                        "course": 1
+                    ]
+                }
+                
+                let order = try await APIService.shared.createOrder(body: [
+                    "items": items,
+                    "status": "preparing",
+                    "customerName": "Cortesía Casa"
+                ])
+                
+                try? await APIService.shared.payOrder(orderId: order.id, body: [
+                    "paymentMethod": "cash",
+                    "cashReceived": 0,
+                    "tip": 0,
+                    "discount": 0
+                ])
+                
+                await PrintService.shared.printGuestTicket(
+                    items: guestProductCart.map { ["name": $0.name, "qty": $0.qty] },
+                    orderNumber: String(order.id.prefix(8))
+                )
+                
+                showToast("Cortesía registrada (\(guestProductCart.count) productos)")
+                guestProductCart = []
+                showGuestProductDialog = false
+            } catch {
+                showToast("Error registrando cortesía", isError: true)
+            }
+        }
+    }
+    
+    func markItemsAsGuest() {
+        for index in guestItemsSelection {
+            guard index < cart.count else { continue }
+            cart[index].isGuest = true
+        }
+        showToast("\(guestItemsSelection.count) producto(s) marcado(s) como invitado")
+        guestItemsSelection = []
+        showGuestItemsDialog = false
+    }
+    
+    func unmarkItemAsGuest(at index: Int) {
+        guard index < cart.count else { return }
+        cart[index].isGuest = false
+        showToast("Producto desinvitado")
+    }
+}
+
+// MARK: - Supporting Types
+
+struct IndividualPayment {
+    var paid: Bool = false
+    var method: String?
+    var amount: Double = 0
+}
+
+struct IndividualTip {
+    var percentage: Int = 0
+    var custom: String = ""
+    var showCustom: Bool = false
+}
+
+struct GuestProductItem: Identifiable {
+    let id = UUID()
+    let productId: String
+    let name: String
+    let price: Double
+    var qty: Int
+}
+
+struct TicketItem {
+    let name: String
+    var qty: Int
+    let price: Double
+    var total: Double
+    var promotionName: String?
+    var promotionDiscount: Double?
+    var isGuest: Bool?
+}

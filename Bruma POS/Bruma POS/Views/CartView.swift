@@ -1,0 +1,489 @@
+import SwiftUI
+
+struct CartView: View {
+    @ObservedObject var vm: POSViewModel
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            cartHeader
+                .padding(16)
+            
+            Rectangle().fill(Color(white: 0.12)).frame(height: 1)
+            
+            if vm.cart.isEmpty {
+                Spacer()
+                VStack(spacing: 8) {
+                    Text("Carrito vacío")
+                        .font(.subheadline)
+                        .foregroundColor(Color(white: 0.5))
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(Array(vm.cart.enumerated()), id: \.offset) { index, item in
+                            CartItemRow(item: item, index: index, vm: vm)
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+            
+            Rectangle().fill(Color(white: 0.12)).frame(height: 1)
+            
+            cartFooter
+                .padding(16)
+        }
+        .background(Color(red: 0.04, green: 0.04, blue: 0.05))
+    }
+    
+    private var cartHeader: some View {
+        VStack(spacing: 12) {
+            if vm.selectedTable != nil || !vm.customerName.isEmpty {
+                HStack(spacing: 8) {
+                    // Back to tables button
+                    Button { vm.handleChangeTable() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(10)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                    }
+                    
+                    // Table/Customer button with context menu
+                    Menu {
+                        if vm.selectedTable != nil {
+                            Button(role: .destructive) {
+                                vm.handleReleaseTable()
+                            } label: {
+                                Label("Liberar Mesa", systemImage: "door.open")
+                            }
+                            
+                            Divider()
+                        }
+                        
+                        Button {
+                            vm.handleChangeTable()
+                        } label: {
+                            Label("Cambiar Mesa", systemImage: "arrow.left.arrow.right")
+                        }
+                        
+                        Button {
+                            vm.tempGuestCount = vm.guestCount
+                            vm.showGuestCountDialog = true
+                        } label: {
+                            Label("Cambiar Comensales", systemImage: "person.2")
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if let table = vm.selectedTable {
+                                Image(systemName: "cup.and.saucer.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.blue)
+                                Text(table.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(.white)
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            } else {
+                                Image(systemName: "bag.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.blue)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Para Llevar")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(.white)
+                                    if !vm.customerName.isEmpty {
+                                        Text(vm.customerName)
+                                            .font(.caption2)
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.white.opacity(0.05))
+                        .cornerRadius(10)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                    }
+                    
+                    // Guest count button
+                    Button {
+                        vm.tempGuestCount = vm.guestCount
+                        vm.showGuestCountDialog = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.2.fill")
+                                .font(.caption)
+                            Text("\(vm.guestCount)")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.blue.opacity(0.15))
+                        .cornerRadius(10)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.blue.opacity(0.3), lineWidth: 1))
+                    }
+                }
+            }
+            
+            HStack {
+                Text("Orden")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.gray)
+                Spacer()
+                Menu {
+                    Button { vm.qrDialogOpen = true } label: { Label("Leer QR", systemImage: "qrcode") }
+                    Button { vm.manualStampDialogOpen = true } label: { Label("Asignar sellos", systemImage: "barcode.viewfinder") }
+                } label: {
+                    Image(systemName: "ellipsis").font(.body).foregroundColor(Color(white: 0.5)).padding(4)
+                }
+                Text(vm.formatCurrency(vm.cartTotal)).font(.subheadline.bold()).foregroundColor(.white)
+            }
+            
+            // Seat buttons
+            if vm.selectedTable != nil && vm.guestCount > 0 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(1...vm.guestCount, id: \.self) { i in
+                            Button { vm.activeSeat = "A\(i)" } label: {
+                                Text("A\(i)")
+                                    .font(.caption.weight(.medium))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(vm.activeSeat == "A\(i)" ? Color.blue.opacity(0.2) : Color.white.opacity(0.05))
+                                    .foregroundColor(vm.activeSeat == "A\(i)" ? .blue : .gray)
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(vm.activeSeat == "A\(i)" ? Color.blue.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
+                                    )
+                            }
+                        }
+                        Button { vm.activeSeat = "C" } label: {
+                            Text("C")
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(vm.activeSeat == "C" ? Color.orange.opacity(0.2) : Color.white.opacity(0.05))
+                                .foregroundColor(vm.activeSeat == "C" ? .orange : .gray)
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(vm.activeSeat == "C" ? Color.orange.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
+                                )
+                        }
+                    }
+                }
+            }
+            
+            // Course buttons
+            if !vm.cart.isEmpty {
+                HStack(spacing: 6) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(1...vm.activeCourse, id: \.self) { c in
+                                Button { vm.activeCourse = c } label: {
+                                    Text("T\(c)")
+                                        .font(.caption.weight(.medium))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(vm.activeCourse == c ? Color.green.opacity(0.2) : Color.white.opacity(0.05))
+                                        .foregroundColor(vm.activeCourse == c ? .green : .gray)
+                                        .cornerRadius(8)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(vm.activeCourse == c ? Color.green.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
+                                        )
+                                }
+                            }
+                        }
+                    }
+                    Button { vm.activeCourse += 1 } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.caption2)
+                            Text("Tiempo")
+                                .font(.caption.weight(.medium))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.green.opacity(0.1))
+                        .foregroundColor(.green)
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green.opacity(0.3), lineWidth: 1))
+                    }
+                }
+            }
+            
+            // Loyalty card
+            if let card = vm.loyaltyCard {
+                HStack(spacing: 12) {
+                    Image(systemName: "gift.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.purple)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(card.customerName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                        Text("\(card.stamps) sellos • \(card.rewardsAvailable) recompensas")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                    Spacer()
+                    Button { vm.loyaltyCard = nil } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(10)
+                .background(Color.purple.opacity(0.08))
+                .cornerRadius(10)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.purple.opacity(0.2), lineWidth: 1))
+            }
+            
+            Text("\(vm.cart.count) \(vm.cart.count == 1 ? "producto" : "productos")")
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+    }
+    
+    private var cartFooter: some View {
+        VStack(spacing: 12) {
+            if !vm.cart.isEmpty && vm.cart.contains(where: { !$0.sentToKitchen }) {
+                Button {
+                    Task { vm.handleSendToKitchen() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "frying.pan")
+                        Text("Enviar a Cocina")
+                            .font(.headline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.orange.opacity(0.2))
+                    .foregroundColor(.orange)
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.4), lineWidth: 1.5))
+                }
+            }
+            
+            HStack(spacing: 10) {
+                // Print button
+                Button {
+                    Task { await vm.handlePrint() }
+                } label: {
+                    Image(systemName: "printer.fill")
+                        .font(.headline)
+                        .frame(width: 52, height: 52)
+                        .background(Color.white.opacity(0.08))
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                }
+                .disabled(vm.cart.isEmpty)
+                .opacity(vm.cart.isEmpty ? 0.3 : 1)
+                
+                // Pay button
+                Button {
+                    vm.showingPayment = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "creditcard.fill")
+                        Text("Pagar")
+                            .font(.headline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(vm.cart.isEmpty ? Color.white.opacity(0.05) : Color.blue.opacity(0.2))
+                    .foregroundColor(vm.cart.isEmpty ? .gray : .blue)
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(vm.cart.isEmpty ? Color.white.opacity(0.1) : Color.blue.opacity(0.4), lineWidth: 1.5))
+                }
+                .disabled(vm.cart.isEmpty)
+            }
+        }
+    }
+}
+
+struct CartItemRow: View {
+    let item: CartItem
+    let index: Int
+    @ObservedObject var vm: POSViewModel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Row 1: Product name + price + trash
+            HStack(alignment: .top, spacing: 8) {
+                Text("\(item.quantity)×")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.gray)
+                
+                Text(item.productName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                Spacer()
+                
+                Text(vm.formatCurrency(item.unitPrice * Double(item.quantity)))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(item.isGuest ? .gray : .white)
+                    .strikethrough(item.isGuest)
+                
+                Button { vm.removeFromCart(at: index) } label: {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                        .foregroundColor(.red.opacity(0.7))
+                }
+            }
+            
+            // Modifiers
+            if let f = item.frostingName {
+                HStack(spacing: 4) {
+                    Text("↳").foregroundColor(.gray)
+                    Text(f)
+                }.font(.caption2).foregroundColor(Color(white: 0.55))
+            }
+            if let t = item.dryToppingName {
+                HStack(spacing: 4) {
+                    Text("↳").foregroundColor(.gray)
+                    Text(t)
+                }.font(.caption2).foregroundColor(Color(white: 0.55))
+            }
+            if let e = item.extraName {
+                HStack(spacing: 4) {
+                    Text("↳").foregroundColor(.gray)
+                    Text(e)
+                }.font(.caption2).foregroundColor(Color(white: 0.55))
+            }
+            
+            // Custom modifiers
+            if let cm = item.customModifiers,
+               let data = cm.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                ForEach(Array(json.keys.sorted()), id: \.self) { key in
+                    if let stepDict = json[key] as? [String: Any],
+                       let options = stepDict["options"] as? [[String: Any]] {
+                        ForEach(Array(options.enumerated()), id: \.offset) { _, opt in
+                            if let name = opt["name"] as? String {
+                                HStack(spacing: 4) {
+                                    Text("↳").foregroundColor(.gray)
+                                    Text(name)
+                                }.font(.caption2).foregroundColor(Color(white: 0.55))
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Notes
+            if !item.notes.isEmpty {
+                HStack(spacing: 4) {
+                    Text("↳")
+                        .font(.caption2)
+                        .foregroundColor(.orange.opacity(0.8))
+                    Text(item.notes)
+                        .italic()
+                        .font(.caption2)
+                        .foregroundColor(.orange.opacity(0.9))
+                }
+            }
+            
+            // Status badge
+            if item.sentToKitchen {
+                HStack(spacing: 6) {
+                    if item.deliveredToTable {
+                        Label("Entregado", systemImage: "checkmark.circle.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.12))
+                            .cornerRadius(6)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.blue.opacity(0.2), lineWidth: 1))
+                    } else if item.orderStatus == "ready" {
+                        Label("Listo", systemImage: "checkmark.circle.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.green.opacity(0.12))
+                            .cornerRadius(6)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.green.opacity(0.2), lineWidth: 1))
+                    } else {
+                        Label("En cocina", systemImage: "frying.pan")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.orange)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.orange.opacity(0.12))
+                            .cornerRadius(6)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.orange.opacity(0.2), lineWidth: 1))
+                    }
+                    
+                    Spacer()
+                    
+                    Text(vm.formatCurrency(item.unitPrice) + " c/u")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
+            }
+            
+            // Quantity controls — only if NOT sent to kitchen
+            if !item.sentToKitchen {
+                HStack(spacing: 0) {
+                    Button {
+                        vm.updateCartQuantity(at: index, delta: -1)
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.caption.weight(.bold))
+                            .frame(width: 32, height: 28)
+                            .foregroundColor(.white)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    
+                    Text("\(item.quantity)")
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(.white)
+                        .frame(width: 32, height: 28)
+                        .background(Color.white.opacity(0.05))
+                    
+                    Button {
+                        vm.updateCartQuantity(at: index, delta: 1)
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.bold))
+                            .frame(width: 32, height: 28)
+                            .foregroundColor(.white)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    
+                    Spacer()
+                    
+                    Text(vm.formatCurrency(item.unitPrice) + " c/u")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.1), lineWidth: 1).padding(.trailing, 0))
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.04))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+}

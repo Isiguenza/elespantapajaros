@@ -161,29 +161,57 @@ class CartViewModel: ObservableObject {
         // If table has existing order, load its items
         if let order = table?.activeOrder {
             currentOrderId = order.id
-            if let orderItems = order.items {
-                items = orderItems.filter { !($0.voided ?? false) }.map { oi in
-                    CartItem(
-                        productId: oi.productId,
-                        productName: oi.productName,
-                        unitPrice: Double(oi.unitPrice) ?? 0,
-                        quantity: oi.quantity,
-                        notes: oi.notes ?? "",
-                        frostingId: oi.frostingId,
-                        frostingName: oi.frostingName,
-                        dryToppingId: oi.dryToppingId,
-                        dryToppingName: oi.dryToppingName,
-                        extraId: oi.extraId,
-                        extraName: oi.extraName,
-                        customModifiers: oi.customModifiers,
-                        seat: oi.seat ?? "C",
-                        course: oi.course ?? 1,
-                        sentToKitchen: true,
-                        orderId: oi.orderId,
-                        itemId: oi.id
-                    )
-                }
+            loadOrderItems(order)
+        } else if table == nil, let name = customerName, !name.isEmpty {
+            // Para Llevar: fetch existing order by customer name
+            Task {
+                await loadParaLlevarOrder(customerName: name)
             }
+        }
+    }
+    
+    private func loadOrderItems(_ order: Order) {
+        guard let orderItems = order.items else { return }
+        items = orderItems.filter { !($0.voided ?? false) }.map { mapOrderItem($0) }
+    }
+    
+    private func loadOrderItems(_ order: ActiveOrder) {
+        guard let orderItems = order.items else { return }
+        items = orderItems.filter { !($0.voided ?? false) }.map { mapOrderItem($0) }
+    }
+    
+    private func mapOrderItem(_ oi: OrderItem) -> CartItem {
+        CartItem(
+            productId: oi.productId,
+            productName: oi.productName,
+            unitPrice: Double(oi.unitPrice) ?? 0,
+            quantity: oi.quantity,
+            notes: oi.notes ?? "",
+            frostingId: oi.frostingId,
+            frostingName: oi.frostingName,
+            dryToppingId: oi.dryToppingId,
+            dryToppingName: oi.dryToppingName,
+            extraId: oi.extraId,
+            extraName: oi.extraName,
+            customModifiers: oi.customModifiers,
+            seat: oi.seat ?? "C",
+            course: oi.course ?? 1,
+            sentToKitchen: true,
+            orderId: oi.orderId,
+            itemId: oi.id
+        )
+    }
+    
+    private func loadParaLlevarOrder(customerName: String) async {
+        do {
+            let orders = try await APIService.shared.fetchDeliveryOrders()
+            // Find first order matching customer name
+            if let order = orders.first(where: { $0.customerName == customerName }) {
+                currentOrderId = order.id
+                loadOrderItems(order)
+            }
+        } catch {
+            print("Error loading Para Llevar order:", error)
         }
     }
 }

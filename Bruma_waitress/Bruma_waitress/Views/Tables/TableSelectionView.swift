@@ -33,7 +33,7 @@ struct TableSelectionView: View {
             } else {
                 ScrollView(showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        // Para Llevar card
+                        // Para Llevar - Nueva Orden card
                         Button(action: { tablesVM.selectParaLlevar() }) {
                             VStack(spacing: 8) {
                                 Image(systemName: "bag.fill")
@@ -56,6 +56,60 @@ struct TableSelectionView: View {
                                             .stroke(Color.blue.opacity(0.3), lineWidth: 1)
                                     )
                             )
+                        }
+                        
+                        // Active Para Llevar orders
+                        ForEach(tablesVM.deliveryOrders) { order in
+                            Button(action: {
+                                handleDeliveryOrderTap(order)
+                            }) {
+                                VStack(spacing: 6) {
+                                    HStack {
+                                        Image(systemName: "bag.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                        Text(order.customerName ?? "Sin Nombre")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundColor(.white)
+                                            .lineLimit(1)
+                                        Spacer()
+                                    }
+                                    
+                                    HStack {
+                                        Text("#\(order.orderNumber)")
+                                            .font(.caption2)
+                                            .foregroundColor(.gray)
+                                        Spacer()
+                                        if let itemCount = order.items?.count {
+                                            Text("\(itemCount) items")
+                                                .font(.caption2)
+                                                .foregroundColor(.green.opacity(0.8))
+                                        }
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(Color.green)
+                                            .frame(width: 6, height: 6)
+                                        Text("Activa")
+                                            .font(.caption2.weight(.medium))
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 120)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(Color.green.opacity(0.08))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14)
+                                                .stroke(Color.green.opacity(0.3), lineWidth: 1)
+                                        )
+                                )
+                            }
                         }
                         
                         // Table cards
@@ -107,8 +161,16 @@ struct TableSelectionView: View {
                 }
             }
         }
-        .task { await tablesVM.fetchTables() }
-        .onAppear { Task { await tablesVM.fetchTables() } }
+        .task {
+            await tablesVM.fetchTables()
+            await tablesVM.fetchDeliveryOrders()
+        }
+        .onAppear {
+            Task {
+                await tablesVM.fetchTables()
+                await tablesVM.fetchDeliveryOrders()
+            }
+        }
         // Customer name dialog
         .alert("Nombre del Cliente", isPresented: $tablesVM.showCustomerNameDialog) {
             TextField("Nombre (opcional)", text: $tablesVM.customerName)
@@ -158,6 +220,14 @@ struct TableSelectionView: View {
         } else if table.isAvailable {
             tablesVM.selectTable(table)
         }
+    }
+    
+    private func handleDeliveryOrderTap(_ order: Order) {
+        // Open existing Para Llevar order
+        tablesVM.selectedTable = nil
+        tablesVM.isParaLlevar = true
+        tablesVM.customerName = order.customerName ?? ""
+        onTableSelected()
     }
     
     // MARK: - Helpers

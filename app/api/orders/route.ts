@@ -105,6 +105,12 @@ export async function GET(request: NextRequest) {
           },
         },
         table: true,
+        user: {
+          columns: {
+            id: true,
+            name: true,
+          },
+        },
       },
       orderBy: [desc(orders.createdAt)],
       limit,
@@ -112,9 +118,11 @@ export async function GET(request: NextRequest) {
 
     console.log("✅ Órdenes encontradas:", result.length);
     
-    // Ensure items have createdAt serialized as ISO string
+    // Ensure items have createdAt serialized as ISO string and add tableName/employeeName
     const serialized = result.map(order => ({
       ...order,
+      tableName: order.table?.name || null,
+      employeeName: order.user?.name || null,
       items: (order.items || []).map(item => ({
         ...item,
         createdAt: item.createdAt instanceof Date 

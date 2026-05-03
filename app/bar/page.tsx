@@ -148,7 +148,7 @@ export default function BarPage() {
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>('');
   const [showDashboard, setShowDashboard] = useState(true);
-  const [authStep, setAuthStep] = useState<'idle' | 'employee' | 'pin'>('idle');
+  const [authStep, setAuthStep] = useState<'idle' | 'pin'>('idle');
   const [employeeCode, setEmployeeCode] = useState('');
   const [pin, setPin] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -632,15 +632,11 @@ export default function BarPage() {
       toast.error('La caja está cerrada. Abre la caja registradora primero.');
       return;
     }
-    setAuthStep('employee');
+    setAuthStep('pin');
   }
 
   function handleNumberClick(num: string) {
-    if (authStep === 'employee') {
-      if (employeeCode.length < 6) {
-        setEmployeeCode(prev => prev + num);
-      }
-    } else if (authStep === 'pin') {
+    if (authStep === 'pin') {
       if (pin.length < 4) {
         setPin(prev => prev + num);
       }
@@ -648,27 +644,15 @@ export default function BarPage() {
   }
 
   function handleBackspace() {
-    if (authStep === 'employee') {
-      setEmployeeCode(prev => prev.slice(0, -1));
-    } else if (authStep === 'pin') {
+    if (authStep === 'pin') {
       setPin(prev => prev.slice(0, -1));
     }
   }
 
   function handleClear() {
-    if (authStep === 'employee') {
-      setEmployeeCode('');
-    } else if (authStep === 'pin') {
+    if (authStep === 'pin') {
       setPin('');
     }
-  }
-
-  async function handleEmployeeSubmit() {
-    if (employeeCode.length !== 6) {
-      toast.error('Ingresa un código de empleado válido (6 dígitos)');
-      return;
-    }
-    setAuthStep('pin');
   }
 
   async function handlePinSubmit() {
@@ -682,12 +666,12 @@ export default function BarPage() {
       const res = await fetch('/api/employees/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: employeeCode, pin }),
+        body: JSON.stringify({ pin }),
       });
 
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || 'Código o PIN inválido');
+        throw new Error(errorData.error || 'PIN inválido');
       }
 
       const data = await res.json();
@@ -702,7 +686,6 @@ export default function BarPage() {
 
   function handleCancel() {
     setAuthStep('idle');
-    setEmployeeCode('');
     setPin('');
   }
 
@@ -2726,57 +2709,6 @@ export default function BarPage() {
                 Iniciar Sesión
               </Button>
             </>
-          )}
-
-          {authStep === 'employee' && (
-            <div className="w-full">
-              <div className="text-center mb-6">
-                <h2 className="text-xl font-semibold text-white mb-2">Código de Empleado</h2>
-                <p className="text-neutral-400 text-sm">6 dígitos</p>
-              </div>
-              
-              <div className="mb-6 text-center">
-                <div className="text-4xl font-mono tracking-widest h-16 flex items-center justify-center bg-neutral-950 rounded-lg border border-neutral-800 text-white">
-                  {employeeCode.padEnd(6, '·')}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 mb-6">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '←'].map((key) => (
-                  <Button
-                    key={key}
-                    variant="outline"
-                    size="lg"
-                    onClick={() => {
-                      if (key === 'C') handleClear();
-                      else if (key === '←') handleBackspace();
-                      else handleNumberClick(key);
-                    }}
-                    className="h-16 text-xl font-semibold bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700 hover:border-blue-600"
-                  >
-                    {key}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="space-y-3">
-                <Button
-                  onClick={handleEmployeeSubmit}
-                  disabled={employeeCode.length !== 6}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                  size="lg"
-                >
-                  Siguiente →
-                </Button>
-                <Button
-                  onClick={handleCancel}
-                  variant="outline"
-                  className="w-full bg-neutral-800 border-neutral-700 text-white hover:bg-neutral-700"
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </div>
           )}
 
           {authStep === 'pin' && (

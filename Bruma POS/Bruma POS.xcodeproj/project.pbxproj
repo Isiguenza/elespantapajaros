@@ -7,19 +7,32 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		1641BC982FA5AC8C00C91260 /* Bruma_waitress.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bruma_waitress.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		160DE4562FA690AA00A3D140 /* Bruma POS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Bruma POS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		160DE4972FA69A6C00A3D140 /* Exceptions for "Bruma POS" folder in "Bruma POS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Bruma-POS-Info.plist",
+			);
+			target = 160DE4552FA690AA00A3D140 /* Bruma POS */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1641BC9A2FA5AC8C00C91260 /* Bruma_waitress */ = {
+		160DE4582FA690AA00A3D140 /* Bruma POS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Bruma_waitress;
+			exceptions = (
+				160DE4972FA69A6C00A3D140 /* Exceptions for "Bruma POS" folder in "Bruma POS" target */,
+			);
+			path = "Bruma POS";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		1641BC952FA5AC8C00C91260 /* Frameworks */ = {
+		160DE4532FA690AA00A3D140 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -29,18 +42,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		1641BC8F2FA5AC8C00C91260 = {
+		160DE44D2FA690AA00A3D140 = {
 			isa = PBXGroup;
 			children = (
-				1641BC9A2FA5AC8C00C91260 /* Bruma_waitress */,
-				1641BC992FA5AC8C00C91260 /* Products */,
+				160DE4582FA690AA00A3D140 /* Bruma POS */,
+				160DE4572FA690AA00A3D140 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		1641BC992FA5AC8C00C91260 /* Products */ = {
+		160DE4572FA690AA00A3D140 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				1641BC982FA5AC8C00C91260 /* Bruma_waitress.app */,
+				160DE4562FA690AA00A3D140 /* Bruma POS.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,64 +61,64 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		1641BC972FA5AC8C00C91260 /* Bruma_waitress */ = {
+		160DE4552FA690AA00A3D140 /* Bruma POS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 1641BCA32FA5AC8E00C91260 /* Build configuration list for PBXNativeTarget "Bruma_waitress" */;
+			buildConfigurationList = 160DE4612FA690AD00A3D140 /* Build configuration list for PBXNativeTarget "Bruma POS" */;
 			buildPhases = (
-				1641BC942FA5AC8C00C91260 /* Sources */,
-				1641BC952FA5AC8C00C91260 /* Frameworks */,
-				1641BC962FA5AC8C00C91260 /* Resources */,
+				160DE4522FA690AA00A3D140 /* Sources */,
+				160DE4532FA690AA00A3D140 /* Frameworks */,
+				160DE4542FA690AA00A3D140 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				1641BC9A2FA5AC8C00C91260 /* Bruma_waitress */,
+				160DE4582FA690AA00A3D140 /* Bruma POS */,
 			);
-			name = Bruma_waitress;
+			name = "Bruma POS";
 			packageProductDependencies = (
 			);
-			productName = Bruma_waitress;
-			productReference = 1641BC982FA5AC8C00C91260 /* Bruma_waitress.app */;
+			productName = "Bruma POS";
+			productReference = 160DE4562FA690AA00A3D140 /* Bruma POS.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		1641BC902FA5AC8C00C91260 /* Project object */ = {
+		160DE44E2FA690AA00A3D140 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
-					1641BC972FA5AC8C00C91260 = {
+					160DE4552FA690AA00A3D140 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
 			};
-			buildConfigurationList = 1641BC932FA5AC8C00C91260 /* Build configuration list for PBXProject "Bruma_waitress" */;
+			buildConfigurationList = 160DE4512FA690AA00A3D140 /* Build configuration list for PBXProject "Bruma POS" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = 1641BC8F2FA5AC8C00C91260;
+			mainGroup = 160DE44D2FA690AA00A3D140;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 1641BC992FA5AC8C00C91260 /* Products */;
+			productRefGroup = 160DE4572FA690AA00A3D140 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				1641BC972FA5AC8C00C91260 /* Bruma_waitress */,
+				160DE4552FA690AA00A3D140 /* Bruma POS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		1641BC962FA5AC8C00C91260 /* Resources */ = {
+		160DE4542FA690AA00A3D140 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -115,7 +128,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		1641BC942FA5AC8C00C91260 /* Sources */ = {
+		160DE4522FA690AA00A3D140 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -125,7 +138,7 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		1641BCA12FA5AC8E00C91260 /* Debug */ = {
+		160DE45F2FA690AD00A3D140 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -189,7 +202,7 @@
 			};
 			name = Debug;
 		};
-		1641BCA22FA5AC8E00C91260 /* Release */ = {
+		160DE4602FA690AD00A3D140 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -246,7 +259,7 @@
 			};
 			name = Release;
 		};
-		1641BCA42FA5AC8E00C91260 /* Debug */ = {
+		160DE4622FA690AD00A3D140 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -256,20 +269,19 @@
 				DEVELOPMENT_TEAM = P4XK9MB8P5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Bruma-waitress-Info.plist";
+				INFOPLIST_FILE = "Bruma-POS-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cocinabruma.Bruma-waitress";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cocinabruma.Bruma-POS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -281,7 +293,7 @@
 			};
 			name = Debug;
 		};
-		1641BCA52FA5AC8E00C91260 /* Release */ = {
+		160DE4632FA690AD00A3D140 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -291,20 +303,19 @@
 				DEVELOPMENT_TEAM = P4XK9MB8P5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Bruma-waitress-Info.plist";
+				INFOPLIST_FILE = "Bruma-POS-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cocinabruma.Bruma-waitress";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.cocinabruma.Bruma-POS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -319,25 +330,25 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		1641BC932FA5AC8C00C91260 /* Build configuration list for PBXProject "Bruma_waitress" */ = {
+		160DE4512FA690AA00A3D140 /* Build configuration list for PBXProject "Bruma POS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				1641BCA12FA5AC8E00C91260 /* Debug */,
-				1641BCA22FA5AC8E00C91260 /* Release */,
+				160DE45F2FA690AD00A3D140 /* Debug */,
+				160DE4602FA690AD00A3D140 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		1641BCA32FA5AC8E00C91260 /* Build configuration list for PBXNativeTarget "Bruma_waitress" */ = {
+		160DE4612FA690AD00A3D140 /* Build configuration list for PBXNativeTarget "Bruma POS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				1641BCA42FA5AC8E00C91260 /* Debug */,
-				1641BCA52FA5AC8E00C91260 /* Release */,
+				160DE4622FA690AD00A3D140 /* Debug */,
+				160DE4632FA690AD00A3D140 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = 1641BC902FA5AC8C00C91260 /* Project object */;
+	rootObject = 160DE44E2FA690AA00A3D140 /* Project object */;
 }
