@@ -29,6 +29,36 @@ struct OrderTakingView: View {
                 menuContent
                 bottomBar
             }
+            
+            // Kitchen confirmation overlay
+            if cartVM.showKitchenConfirmation {
+                Color.green
+                    .ignoresSafeArea()
+                    .overlay(
+                        VStack(spacing: 20) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 80))
+                                .foregroundColor(.white)
+                                .scaleEffect(cartVM.showKitchenConfirmation ? 1 : 0.5)
+                            
+                            Text("Enviado a Cocina")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            Text("Toca para continuar")
+                                .font(.headline)
+                                .foregroundColor(.white.opacity(0.8))
+                                .padding(.top, 8)
+                        }
+                    )
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            cartVM.showKitchenConfirmation = false
+                        }
+                    }
+                    .transition(.opacity.combined(with: .scale))
+                    .zIndex(999)
+            }
         }
         .preferredColorScheme(.dark)
         .onAppear {

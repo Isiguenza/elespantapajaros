@@ -21,8 +21,85 @@ struct CartView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(Array(vm.cart.enumerated()), id: \.offset) { index, item in
-                            CartItemRow(item: item, index: index, vm: vm)
+                        // Group by course and seat like /bar
+                        let seatOrder = vm.selectedTable != nil 
+                            ? Array(1...vm.guestCount).map { "A\($0)" } + ["C"]
+                            : ["C"]
+                        
+                        let sortedCart = vm.cart.enumerated().map { (index: $0, item: $1) }
+                            .sorted { a, b in
+                                let courseA = a.item.course
+                                let courseB = b.item.course
+                                if courseA != courseB { return courseA < courseB }
+                                
+                                if vm.selectedTable != nil {
+                                    let aIdx = seatOrder.firstIndex(of: a.item.seat) ?? 999
+                                    let bIdx = seatOrder.firstIndex(of: b.item.seat) ?? 999
+                                    return aIdx < bIdx
+                                }
+                                return false
+                            }
+                        
+                        let maxCourse = vm.cart.map { $0.course }.max() ?? 1
+                        let showCourseHeaders = maxCourse > 1
+                        
+                        var lastCourse = 0
+                        var lastSeat = ""
+                        
+                        ForEach(Array(sortedCart.enumerated()), id: \.offset) { arrayIndex, element in
+                            let index = element.index
+                            let item = element.item
+                            let itemCourse = item.course
+                            
+                            // Check if we need to show headers
+                            let showCourseHeader = showCourseHeaders && itemCourse != lastCourse
+                            let showSeatHeader = vm.selectedTable != nil && item.seat != lastSeat
+                            
+                            // Update tracking variables
+                            let _ = {
+                                if showCourseHeader {
+                                    lastCourse = itemCourse
+                                    lastSeat = "" // Reset seat when course changes
+                                }
+                                if showSeatHeader {
+                                    lastSeat = item.seat
+                                }
+                            }()
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                if showCourseHeader {
+                                    HStack(spacing: 6) {
+                                        Text("T\(itemCourse)")
+                                            .font(.caption.weight(.bold))
+                                        Text("•")
+                                            .foregroundColor(Color(white: 0.4))
+                                        Text("Tiempo \(itemCourse)")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .foregroundColor(.green)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(Color.green.opacity(0.1))
+                                    .cornerRadius(8)
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green.opacity(0.3), lineWidth: 1))
+                                    .padding(.top, arrayIndex == 0 ? 0 : 8)
+                                }
+                                
+                                if showSeatHeader {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: item.seat == "C" ? "fork.knife" : "person.fill")
+                                            .font(.caption2)
+                                        Text(item.seat == "C" ? "Centro (compartido)" : "Asiento \(item.seat)")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .foregroundColor(item.seat == "C" ? .orange : .blue)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .padding(.top, showCourseHeader ? 4 : (arrayIndex == 0 ? 0 : 8))
+                                }
+                                
+                                CartItemRow(item: item, index: index, vm: vm)
+                            }
                         }
                     }
                     .padding(16)
@@ -186,42 +263,25 @@ struct CartView: View {
                 }
             }
             
-            // Course buttons
+            // Course buttons (fixed T1-T4)
             if !vm.cart.isEmpty {
                 HStack(spacing: 6) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(1...vm.activeCourse, id: \.self) { c in
-                                Button { vm.activeCourse = c } label: {
-                                    Text("T\(c)")
-                                        .font(.caption.weight(.medium))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(vm.activeCourse == c ? Color.green.opacity(0.2) : Color.white.opacity(0.05))
-                                        .foregroundColor(vm.activeCourse == c ? .green : .gray)
-                                        .cornerRadius(8)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(vm.activeCourse == c ? Color.green.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
-                                        )
-                                }
-                            }
-                        }
-                    }
-                    Button { vm.activeCourse += 1 } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.caption2)
-                            Text("Tiempo")
+                    ForEach(1...4, id: \.self) { c in
+                        Button { vm.activeCourse = c } label: {
+                            Text("T\(c)")
                                 .font(.caption.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(vm.activeCourse == c ? Color.green.opacity(0.2) : Color.white.opacity(0.05))
+                                .foregroundColor(vm.activeCourse == c ? .green : .gray)
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(vm.activeCourse == c ? Color.green.opacity(0.4) : Color.white.opacity(0.1), lineWidth: 1)
+                                )
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.green.opacity(0.1))
-                        .foregroundColor(.green)
-                        .cornerRadius(8)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green.opacity(0.3), lineWidth: 1))
                     }
+                    Spacer()
                 }
             }
             
@@ -485,5 +545,68 @@ struct CartItemRow: View {
         .background(Color.white.opacity(0.04))
         .cornerRadius(10)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .contextMenu {
+            // Only show context menu if item hasn't been sent to kitchen
+            if !item.sentToKitchen {
+                // Change seat submenu
+                if vm.selectedTable != nil && vm.guestCount > 0 {
+                    Menu {
+                        ForEach(1...vm.guestCount, id: \.self) { seatNum in
+                            Button {
+                                vm.changeSeat(at: index, to: "A\(seatNum)")
+                            } label: {
+                                HStack {
+                                    Text("Asiento A\(seatNum)")
+                                    if item.seat == "A\(seatNum)" {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                        Button {
+                            vm.changeSeat(at: index, to: "C")
+                        } label: {
+                            HStack {
+                                Text("Centro (compartido)")
+                                if item.seat == "C" {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Cambiar Asiento", systemImage: "person.fill")
+                    }
+                }
+                
+                // Change course submenu
+                Menu {
+                    ForEach(1...5, id: \.self) { courseNum in
+                        Button {
+                            vm.changeCourse(at: index, to: courseNum)
+                        } label: {
+                            HStack {
+                                Text("Tiempo \(courseNum)")
+                                if item.course == courseNum {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Cambiar Tiempo", systemImage: "clock.fill")
+                }
+                
+                Divider()
+                
+                Button(role: .destructive) {
+                    vm.removeFromCart(at: index)
+                } label: {
+                    Label("Eliminar", systemImage: "trash")
+                }
+            } else {
+                Text("Item ya enviado a cocina")
+                    .foregroundColor(.gray)
+            }
+        }
     }
 }

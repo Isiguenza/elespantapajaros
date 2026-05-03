@@ -13,7 +13,8 @@ class PrintService {
         orderNumber: String,
         customerName: String?,
         items: [[String: Any]],
-        isDelivery: Bool = false
+        isDelivery: Bool = false,
+        guestCount: Int? = nil
     ) async {
         guard let url = URL(string: "\(printServerURL)/print-comanda") else { return }
         var request = URLRequest(url: url)
@@ -28,6 +29,7 @@ class PrintService {
         ]
         if let tn = tableNumber { body["tableNumber"] = tn }
         if let cn = customerName { body["customerName"] = cn }
+        if let gc = guestCount { body["guestCount"] = gc }
         
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         _ = try? await URLSession.shared.data(for: request)

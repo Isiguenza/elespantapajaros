@@ -109,7 +109,8 @@ class MenuViewModel: ObservableObject {
             notes: "",
             seat: seat,
             course: course,
-            sentToKitchen: false
+            sentToKitchen: false,
+            isBeverage: product.category?.isBeverage ?? false
         )
         pendingCartItem = item
         tempNotes = ""
@@ -128,7 +129,8 @@ class MenuViewModel: ObservableObject {
             notes: "",
             seat: seat,
             course: course,
-            sentToKitchen: false
+            sentToKitchen: false,
+            isBeverage: product.category?.isBeverage ?? false
         )
         pendingCartItem = item
         tempNotes = ""
@@ -198,7 +200,8 @@ class MenuViewModel: ObservableObject {
             customModifiers: customModifiersJSON,
             seat: seat,
             course: course,
-            sentToKitchen: false
+            sentToKitchen: false,
+            isBeverage: product.category?.isBeverage ?? false
         )
         
         pendingCartItem = item

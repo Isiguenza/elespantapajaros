@@ -9,6 +9,7 @@ class CartViewModel: ObservableObject {
     @Published var guestCount: Int = 2
     @Published var sending: Bool = false
     @Published var currentOrderId: String?
+    @Published var showKitchenConfirmation: Bool = false
     
     // Table / Para Llevar context
     var selectedTable: Table?
@@ -62,6 +63,16 @@ class CartViewModel: ObservableObject {
         if items[index].quantity > 1 {
             items[index].quantity -= 1
         }
+    }
+    
+    func changeSeat(at index: Int, to newSeat: String) {
+        guard index < items.count, !items[index].sentToKitchen else { return }
+        items[index].seat = newSeat
+    }
+    
+    func changeCourse(at index: Int, to newCourse: Int) {
+        guard index < items.count, !items[index].sentToKitchen else { return }
+        items[index].course = newCourse
     }
     
     func sendToKitchen() async {
@@ -126,16 +137,26 @@ class CartViewModel: ObservableObject {
                 var dict: [String: Any] = [
                     "name": $0.productName,
                     "qty": $0.quantity,
+                    "seat": $0.seat,
+                    "course": $0.course,
+                    "isBeverage": $0.isBeverage
                 ]
                 if !$0.notes.isEmpty { dict["notes"] = $0.notes }
+                if let f = $0.frostingName { dict["frosting"] = f }
+                if let t = $0.dryToppingName { dict["topping"] = t }
+                if let e = $0.extraName { dict["extra"] = e }
                 return dict
             }
             await APIService.shared.printComanda(
                 tableNumber: selectedTable?.number,
                 orderNumber: currentOrderId?.prefix(8).description ?? "",
                 customerName: selectedTable == nil ? customerName : nil,
-                items: printItems
+                items: printItems,
+                guestCount: guestCount
             )
+            
+            // Show success confirmation
+            showKitchenConfirmation = true
             
         } catch {
             print("Error sending to kitchen:", error)

@@ -210,6 +210,18 @@ class APIService {
         let (_, _) = try await requestRaw(url, method: "PATCH")
     }
     
+    func transferOrder(orderId: String, newTableId: String) async throws {
+        let url = URL(string: "\(baseURL)/api/orders/transfer")!
+        let body: [String: Any] = [
+            "orderId": orderId,
+            "newTableId": newTableId
+        ]
+        let (_, http) = try await requestRaw(url, method: "POST", body: body)
+        if !(200...299).contains(http.statusCode) {
+            throw APIError.serverError
+        }
+    }
+    
     // MARK: - Tables with Ready Items
     
     func fetchTablesWithReadyItems() async throws -> Set<String> {

@@ -14,39 +14,75 @@ struct TableSelectionView: View {
                 
                 // Grid — 3 columns
                 ScrollView {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ], spacing: 12) {
-                        // 1. Para Llevar button
-                        paraLlevarCard
-                        
-                        // 2. Active delivery orders
-                        ForEach(vm.deliveryOrders) { order in
-                            DeliveryCardView(order: order, iconColor: .green, bgColor: .green) {
-                                vm.handleSelectDeliveryOrder(order)
+                    VStack(spacing: 0) {
+                        // DELIVERY SECTION
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("DELIVERY")
+                                .font(.caption.weight(.bold))
+                                .foregroundColor(.gray)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 16)
+                            
+                            LazyVGrid(columns: [
+                                GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12)
+                            ], spacing: 12) {
+                                // 1. Para Llevar button (always first)
+                                paraLlevarCard
+                                
+                                // 2. Platform Delivery button (always second)
+                                platformDeliveryCard
+                                
+                                // 3. Active Para Llevar orders
+                                ForEach(vm.deliveryOrders) { order in
+                                    DeliveryCardView(order: order, iconColor: .green, bgColor: .green) {
+                                        vm.handleSelectDeliveryOrder(order)
+                                    }
+                                }
+                                
+                                // 4. Active Platform Delivery orders
+                                ForEach(vm.platformDeliveryOrders) { order in
+                                    DeliveryCardView(order: order, iconColor: .purple, bgColor: .purple) {
+                                        vm.handleSelectDeliveryOrder(order)
+                                    }
+                                }
                             }
+                            .padding(.horizontal, 16)
                         }
                         
-                        // 3. Platform Delivery button
-                        platformDeliveryCard
-                        
-                        // 4. Active platform delivery orders
-                        ForEach(vm.platformDeliveryOrders) { order in
-                            DeliveryCardView(order: order, iconColor: .purple, bgColor: .purple) {
-                                vm.handleSelectDeliveryOrder(order)
-                            }
+                        // Divider
+                        if !vm.tables.isEmpty {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.1))
+                                .frame(height: 1)
+                                .padding(.vertical, 20)
+                                .padding(.horizontal, 16)
                         }
                         
-                        // 5. Tables
-                        ForEach(vm.tables) { table in
-                            TableCardView(table: table, hasReadyItems: vm.tablesWithReadyItems.contains(table.id)) {
-                                vm.handleSelectTable(table)
+                        // MESAS SECTION
+                        if !vm.tables.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("MESAS")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundColor(.gray)
+                                    .padding(.horizontal, 16)
+                                
+                                LazyVGrid(columns: [
+                                    GridItem(.flexible(), spacing: 12),
+                                    GridItem(.flexible(), spacing: 12),
+                                    GridItem(.flexible(), spacing: 12)
+                                ], spacing: 12) {
+                                    ForEach(vm.tables) { table in
+                                        TableCardView(table: table, hasReadyItems: vm.tablesWithReadyItems.contains(table.id)) {
+                                            vm.handleSelectTable(table)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 16)
                             }
                         }
                     }
-                    .padding(16)
                     .padding(.bottom, 50)
                 }
                 .refreshable {
@@ -207,14 +243,40 @@ struct TableSelectionView: View {
     // MARK: - Header (clean style)
     
     private var header: some View {
-        VStack(spacing: 4) {
-            Text("Seleccionar Mesa")
-                .font(.title2.weight(.bold))
-                .foregroundColor(.white)
-            Text("Elige una mesa o crea una orden para llevar")
-                .font(.caption)
-                .foregroundColor(.gray)
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Seleccionar Mesa")
+                    .font(.title2.weight(.bold))
+                    .foregroundColor(.white)
+                Text("Elige una mesa o crea una orden para llevar")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 12) {
+                Image(systemName: "person.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.white.opacity(0.7))
+                
+                Text(vm.employeeName ?? "Usuario")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.white)
+                
+                Button(action: {
+                    vm.clearSession()
+                }) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 18))
+                        .foregroundColor(.red.opacity(0.8))
+                        .padding(8)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(8)
+                }
+            }
         }
+        .padding(.horizontal, 16)
         .padding(.top, 16)
         .padding(.bottom, 12)
     }

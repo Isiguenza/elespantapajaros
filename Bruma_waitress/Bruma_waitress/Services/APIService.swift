@@ -186,7 +186,7 @@ class APIService {
     
     // MARK: - Print Comanda
     
-    func printComanda(tableNumber: String?, orderNumber: String, customerName: String?, items: [[String: Any]]) async {
+    func printComanda(tableNumber: String?, orderNumber: String, customerName: String?, items: [[String: Any]], guestCount: Int? = nil) async {
         guard let url = URL(string: "\(printServerURL)/print-comanda") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -199,6 +199,7 @@ class APIService {
         ]
         if let tn = tableNumber { body["tableNumber"] = tn }
         if let cn = customerName { body["customerName"] = cn }
+        if let gc = guestCount { body["guestCount"] = gc }
         
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         

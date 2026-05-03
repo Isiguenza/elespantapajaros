@@ -84,6 +84,9 @@ class POSViewModel: ObservableObject {
     @Published var voidItemIndex: Int?
     @Published var voidReason = ""
     
+    // MARK: - Transfer Table
+    @Published var showTransferTableDialog = false
+    
     // MARK: - Payment
     @Published var showingPayment = false
     @Published var paymentStep = "summary" // summary, payment, confirmation, done, split-assign, split-overview, split-pay-person
@@ -1008,6 +1011,20 @@ class POSViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Change Seat/Course
+    
+    func changeSeat(at index: Int, to newSeat: String) {
+        guard index < cart.count else { return }
+        cart[index].seat = newSeat
+        showToast("Asiento cambiado a \(newSeat)")
+    }
+    
+    func changeCourse(at index: Int, to newCourse: Int) {
+        guard index < cart.count else { return }
+        cart[index].course = newCourse
+        showToast("Tiempo cambiado a T\(newCourse)")
+    }
+    
     // MARK: - Promotions
     
     func applyPromotions() {
@@ -1137,7 +1154,8 @@ class POSViewModel: ObservableObject {
             orderNumber: String(orderId.prefix(8)),
             customerName: customerName.isEmpty ? nil : customerName,
             items: comandaItems,
-            isDelivery: selectedTable == nil
+            isDelivery: selectedTable == nil,
+            guestCount: guestCount
         )
     }
     
@@ -1481,8 +1499,34 @@ class POSViewModel: ObservableObject {
     }
     
     func handleChangeTable() {
-        currentScreen = .tableSelection
-        Task { await refreshTables() }
+        showTransferTableDialog = true
+    }
+    
+    func transferToTable(_ targetTable: Table) async {
+        guard let currentTable = selectedTable else { return }
+        guard let orderId = currentOrderId else { return }
+        
+        // Check if target table is occupied
+        if targetTable.status == "occupied" {
+            showToast("La mesa \(targetTable.number) ya está ocupada", isError: true)
+            return
+        }
+        
+        // Transfer order to new table
+        do {
+            try await APIService.shared.transferOrder(orderId: orderId, newTableId: targetTable.id)
+            
+            // Update local state
+            selectedTable = targetTable
+            showTransferTableDialog = false
+            
+            // Refresh tables
+            await refreshTables()
+            
+            showToast("Orden transferida a Mesa \(targetTable.number)")
+        } catch {
+            showToast("Error al transferir orden", isError: true)
+        }
     }
     
     func handleReleaseTable() {

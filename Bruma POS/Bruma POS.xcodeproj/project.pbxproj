@@ -10,22 +10,9 @@
 		160DE4562FA690AA00A3D140 /* Bruma POS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Bruma POS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		160DE4972FA69A6C00A3D140 /* Exceptions for "Bruma POS" folder in "Bruma POS" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"Bruma-POS-Info.plist",
-			);
-			target = 160DE4552FA690AA00A3D140 /* Bruma POS */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		160DE4582FA690AA00A3D140 /* Bruma POS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				160DE4972FA69A6C00A3D140 /* Exceptions for "Bruma POS" folder in "Bruma POS" target */,
-			);
 			path = "Bruma POS";
 			sourceTree = "<group>";
 		};

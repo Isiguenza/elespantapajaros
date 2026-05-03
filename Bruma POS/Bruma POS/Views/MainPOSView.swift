@@ -7,41 +7,7 @@ struct MainPOSView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Spacer()
-                    
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white.opacity(0.7))
-                        
-                        Text(vm.employeeName ?? "Usuario")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundColor(.white)
-                        
-                        Button(action: {
-                            vm.clearSession()
-                        }) {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 18))
-                                .foregroundColor(.red.opacity(0.8))
-                                .padding(8)
-                                .background(Color.red.opacity(0.1))
-                                .cornerRadius(8)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                }
-                .background(Color(white: 0.08))
-                
-                Rectangle()
-                    .fill(Color(white: 0.12))
-                    .frame(height: 1)
-                
-                HStack(spacing: 0) {
+            HStack(spacing: 0) {
                 // Left side: Cart sidebar (w-80 = 320pt like /bar)
                 CartView(vm: vm)
                     .frame(width: 320)
@@ -69,7 +35,6 @@ struct MainPOSView: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
-            }
             }
             
             // MARK: - Dialog Overlays
@@ -112,6 +77,10 @@ struct MainPOSView: View {
             
             if vm.showAdminMenu {
                 dialogOverlay { AdminMenuDialog(vm: vm) }
+            }
+            
+            if vm.showTransferTableDialog {
+                dialogOverlay { TransferTableDialog(vm: vm) }
             }
             
             if vm.showGuestItemsDialog {

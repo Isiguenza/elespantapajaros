@@ -79,7 +79,9 @@ struct CartView: View {
                                             editable: true,
                                             onIncrement: { cartVM.incrementItem(at: idx) },
                                             onDecrement: { cartVM.decrementItem(at: idx) },
-                                            onRemove: { cartVM.removeItem(at: idx) }
+                                            onRemove: { cartVM.removeItem(at: idx) },
+                                            cartVM: cartVM,
+                                            index: idx
                                         )
                                     }
                                 }
@@ -170,6 +172,8 @@ struct CartItemRow: View {
     var onIncrement: (() -> Void)?
     var onDecrement: (() -> Void)?
     var onRemove: (() -> Void)?
+    var cartVM: CartViewModel?
+    var index: Int?
     
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -252,6 +256,65 @@ struct CartItemRow: View {
             }
         }
         .padding(.vertical, 8)
+        .contextMenu {
+            if editable, let vm = cartVM, let idx = index {
+                // Change seat submenu
+                if vm.guestCount > 0 {
+                    Menu {
+                        ForEach(1...vm.guestCount, id: \.self) { seatNum in
+                            Button {
+                                vm.changeSeat(at: idx, to: "A\(seatNum)")
+                            } label: {
+                                HStack {
+                                    Text("Asiento A\(seatNum)")
+                                    if item.seat == "A\(seatNum)" {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                        Button {
+                            vm.changeSeat(at: idx, to: "C")
+                        } label: {
+                            HStack {
+                                Text("Compartido")
+                                if item.seat == "C" {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Cambiar Asiento", systemImage: "person.fill")
+                    }
+                }
+                
+                // Change course submenu
+                Menu {
+                    ForEach(1...4, id: \.self) { courseNum in
+                        Button {
+                            vm.changeCourse(at: idx, to: courseNum)
+                        } label: {
+                            HStack {
+                                Text("Tiempo \(courseNum)")
+                                if item.course == courseNum {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Cambiar Tiempo", systemImage: "clock.fill")
+                }
+                
+                Divider()
+                
+                Button(role: .destructive) {
+                    onRemove?()
+                } label: {
+                    Label("Eliminar", systemImage: "trash")
+                }
+            }
+        }
     }
 }
 
