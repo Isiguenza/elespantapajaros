@@ -2,7 +2,6 @@ import SwiftUI
 
 struct TransferTableDialog: View {
     @ObservedObject var vm: POSViewModel
-    @Environment(\.dismiss) private var dismiss
     
     var availableTables: [Table] {
         vm.tables.filter { $0.id != vm.selectedTable?.id }
@@ -22,7 +21,7 @@ struct TransferTableDialog: View {
                     Spacer()
                     
                     Button {
-                        dismiss()
+                        vm.showTransferTableDialog = false
                     } label: {
                         Image(systemName: "xmark")
                             .font(.headline)

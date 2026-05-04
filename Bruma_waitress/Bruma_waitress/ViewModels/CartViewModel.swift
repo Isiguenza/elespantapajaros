@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 class CartViewModel: ObservableObject {
@@ -154,6 +155,10 @@ class CartViewModel: ObservableObject {
                 items: printItems,
                 guestCount: guestCount
             )
+            
+            // Dismiss keyboard and wait a bit before showing confirmation
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
             
             // Show success confirmation
             showKitchenConfirmation = true

@@ -1353,6 +1353,12 @@ class POSViewModel: ObservableObject {
         let finalTotal = personTotal + tipAmt
         
         individualPayments[pIdx] = IndividualPayment(paid: true, method: splitPaymentMethod, amount: finalTotal)
+        
+        // Print individual ticket
+        Task {
+            await printSplitPersonTicket(personIndex: pIdx, items: assignedItems, tip: tipAmt, total: finalTotal)
+        }
+        
         showToast("Persona \(pIdx + 1) - Pago registrado: \(formatCurrency(finalTotal))")
         paymentStep = "split-overview"
     }
@@ -1462,6 +1468,39 @@ class POSViewModel: ObservableObject {
             isDelivery: selectedTable == nil,
             discount: discountData,
             paymentMethod: paymentMethod
+        )
+    }
+    
+    func printSplitPersonTicket(personIndex: Int, items: [Int], tip: Double, total: Double) async {
+        guard !items.isEmpty else { return }
+        
+        var ticketItems: [[String: Any]] = []
+        for itemIndex in items {
+            guard itemIndex < cart.count else { continue }
+            let item = cart[itemIndex]
+            ticketItems.append([
+                "name": item.productName,
+                "qty": item.quantity,
+                "price": item.unitPrice,
+                "total": Double(item.quantity) * item.unitPrice
+            ])
+        }
+        
+        let subtotal = items.reduce(0.0) { sum, ci in
+            guard ci < cart.count else { return sum }
+            return sum + cart[ci].unitPrice * Double(cart[ci].quantity)
+        }
+        
+        await PrintService.shared.printSplitTicket(
+            tableNumber: selectedTable?.number,
+            orderNumber: currentOrderId?.prefix(8).description ?? "",
+            customerName: selectedTable == nil ? customerName : nil,
+            items: ticketItems,
+            subtotal: subtotal,
+            tip: tip,
+            total: total,
+            paymentMethod: splitPaymentMethod,
+            splitInfo: "Persona \(personIndex + 1) de \(guestCount)"
         )
     }
     

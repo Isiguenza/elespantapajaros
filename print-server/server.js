@@ -514,6 +514,115 @@ app.post('/print-summary', async (req, res) => {
   }
 });
 
+// Endpoint para imprimir ticket de cuenta dividida
+app.post('/print-split', async (req, res) => {
+  try {
+    const { tableNumber, orderNumber, customerName, items, subtotal, tip, total, paymentMethod, splitInfo } = req.body;
+    console.log('💰 Imprimiendo ticket dividido:', splitInfo);
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Mexico_City' });
+    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
+
+    let content = "";
+    content += commands.init;
+    content += commands.alignCenter;
+    content += commands.bold;
+    content += commands.textSizeDouble;
+    content += "ESPANTAPAJAROS\n";
+    content += commands.textSizeNormal;
+    content += commands.boldOff;
+    content += `${dateStr} ${timeStr}\n`;
+    
+    // Split info
+    content += commands.bold;
+    content += `${splitInfo}\n`;
+    content += commands.boldOff;
+    
+    if (tableNumber) {
+      content += `Mesa: ${tableNumber}\n`;
+    } else if (customerName) {
+      content += `Cliente: ${customerName}\n`;
+    }
+    content += `Orden: ${orderNumber}\n`;
+    content += "================================\n";
+    content += commands.alignLeft;
+
+    // Items
+    for (const item of items) {
+      const itemName = item.name.length > 20 ? item.name.substring(0, 20) : item.name;
+      const qty = item.qty;
+      const price = item.price;
+      const itemTotal = item.total;
+      
+      content += `${qty}x ${itemName}\n`;
+      content += `   $${price.toFixed(2)} c/u    $${itemTotal.toFixed(2)}\n`;
+    }
+
+    content += "================================\n";
+    content += commands.alignRight;
+    content += `Subtotal:    $${subtotal.toFixed(2)}\n`;
+    
+    if (tip > 0) {
+      content += `Propina:     $${tip.toFixed(2)}\n`;
+    }
+    
+    content += commands.bold;
+    content += commands.textSizeDouble;
+    content += `TOTAL:       $${total.toFixed(2)}\n`;
+    content += commands.textSizeNormal;
+    content += commands.boldOff;
+    content += "================================\n";
+    
+    // Payment method
+    if (paymentMethod) {
+      content += commands.alignCenter;
+      const methodText = paymentMethod === 'cash' ? 'EFECTIVO' :
+                        paymentMethod === 'terminal_mercadopago' ? 'TERMINAL' :
+                        paymentMethod === 'transfer' ? 'TRANSFERENCIA' : paymentMethod.toUpperCase();
+      content += `Método: ${methodText}\n`;
+    }
+    
+    content += "\n";
+    content += commands.alignCenter;
+    content += "¡Gracias por su visita!\n";
+    content += "\n\n";
+    content += commands.feed;
+    content += commands.cut;
+
+    // Enviar a impresora
+    const client = new net.Socket();
+    let responseSent = false;
+
+    client.connect(PRINTER_PORT, PRINTER_IP, () => {
+      console.log('📡 Conectado a impresora para ticket dividido');
+      client.write(content, 'binary', () => {
+        client.end();
+      });
+    });
+
+    client.on('error', (err) => {
+      console.error('❌ Error impresora:', err.message);
+      if (!responseSent) {
+        responseSent = true;
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    client.on('close', () => {
+      console.log('✅ Ticket dividido enviado a impresora');
+      if (!responseSent) {
+        responseSent = true;
+        res.json({ success: true });
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Endpoint para imprimir ticket de cortesía con línea de firma
 app.post('/print-guest', async (req, res) => {
   try {

@@ -119,7 +119,10 @@ struct CartView: View {
             if vm.selectedTable != nil || !vm.customerName.isEmpty {
                 HStack(spacing: 8) {
                     // Back to tables button
-                    Button { vm.handleChangeTable() } label: {
+                    Button { 
+                        vm.currentScreen = .tableSelection
+                        Task { await vm.refreshTables() }
+                    } label: {
                         Image(systemName: "chevron.left")
                             .font(.subheadline.weight(.medium))
                             .foregroundColor(.white)
